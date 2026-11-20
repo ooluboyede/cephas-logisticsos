@@ -219,9 +219,7 @@ def _trusted_boundary_call_violations(
     imported_symbols: dict[str, str] = {}
     violations: list[tuple[int, str]] = []
     package_name = module_name.rpartition(".")[0]
-    constructor = (
-        "cephas_logisticsos.tenancy.trusted_context.TrustedTenantContextAdapter"
-    )
+    constructor = "cephas_logisticsos.tenancy.trusted_context.TrustedTenantContextAdapter"
     factory = "cephas_logisticsos.composition.build_tenant_context_adapter"
     trusted_modules = {
         "cephas_logisticsos.tenancy",
