@@ -29,7 +29,12 @@ class MembershipRepository(Protocol):
 
 
 class TrustedTenantContextAdapter:
-    """Resolve scope only after authentication and authoritative membership lookup."""
+    """Resolve scope only after trusted authentication and membership lookup.
+
+    Instances must be created by the application composition root with
+    deployment-controlled implementations. Never inject request-scoped,
+    client-selected, or otherwise caller-controlled providers.
+    """
 
     def __init__(
         self,
@@ -52,5 +57,11 @@ class TrustedTenantContextAdapter:
         )
         if membership is None:
             raise TenantContextError("authoritative tenant membership was not found")
+        if membership.tenant_id != tenant_id:
+            raise TenantContextError("membership tenant does not match requested tenant")
+        if membership.business_unit_id != business_unit_id:
+            raise TenantContextError(
+                "membership business unit does not match requested business unit"
+            )
         evidence = _issue_adapter_evidence(principal, membership)
         return TenantScope.from_verified_membership(evidence)
