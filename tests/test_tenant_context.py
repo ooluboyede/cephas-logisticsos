@@ -55,15 +55,15 @@ def test_trusted_adapter_resolves_scope_after_authentication_and_repository_look
         business_unit_id="north-hub",
     )
     assert (scope.subject_id, scope.tenant_id, scope.business_unit_id) == (
-        "operator-17", "customer-1", "north-hub"
+        "operator-17",
+        "customer-1",
+        "north-hub",
     )
 
 
 def test_scope_factory_rejects_public_principal_and_membership_data_carriers() -> None:
     with pytest.raises(TenantContextError, match="trusted adapter-issued"):
-        TenantScope.from_verified_membership(
-            AuthenticatedPrincipal("operator-17", True)
-        )
+        TenantScope.from_verified_membership(AuthenticatedPrincipal("operator-17", True))
     with pytest.raises(TenantContextError, match="trusted adapter-issued"):
         TenantScope.from_verified_membership(
             TenantMembership("operator-17", "customer-1", "north-hub", True)
