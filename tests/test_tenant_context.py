@@ -7,6 +7,11 @@ from cephas_logisticsos.tenancy import (
     TenantMembership,
     TenantScope,
 )
+from cephas_logisticsos.tenancy.context import (
+    _TRUSTED_ADAPTER_CAPABILITY,
+    _VerifiedTenantMembership,
+    _issue_verified_membership_from_trusted_adapter,
+)
 
 
 def _valid_principal() -> AuthenticatedPrincipal:
@@ -17,29 +22,81 @@ def _valid_membership() -> TenantMembership:
     return TenantMembership("operator-17", "customer-1", "north-hub", True)
 
 
-def test_scope_is_created_for_matching_active_membership() -> None:
-    scope = TenantScope.from_verified_membership(_valid_principal(), _valid_membership())
+def _verified_evidence() -> _VerifiedTenantMembership:
+    return _issue_verified_membership_from_trusted_adapter(
+        _valid_principal(),
+        _valid_membership(),
+        capability=_TRUSTED_ADAPTER_CAPABILITY,
+    )
+
+
+def test_scope_is_created_from_trusted_adapter_evidence() -> None:
+    scope = TenantScope.from_verified_membership(_verified_evidence())
     assert scope.subject_id == "operator-17"
     assert scope.tenant_id == "customer-1"
     assert scope.business_unit_id == "north-hub"
 
 
-def test_scope_rejects_unauthenticated_principal() -> None:
+def test_publicly_constructed_principal_and_membership_cannot_create_scope() -> None:
+    principal = AuthenticatedPrincipal("operator-17", is_authenticated=True)
+    membership = TenantMembership("operator-17", "attacker-tenant", "restricted-hub", True)
+
+    with pytest.raises(TypeError):
+        TenantScope.from_verified_membership(principal, membership)  # type: ignore[call-arg]
+
+
+def test_scope_factory_rejects_public_principal_as_evidence() -> None:
+    with pytest.raises(TenantContextError, match="trusted adapter-issued"):
+        TenantScope.from_verified_membership(_valid_principal())  # type: ignore[arg-type]
+
+
+def test_verified_evidence_cannot_be_directly_constructed_without_capability() -> None:
+    with pytest.raises(TypeError, match="trusted adapters only"):
+        _VerifiedTenantMembership(
+            capability=object(),
+            subject_id="operator-17",
+            tenant_id="customer-1",
+            business_unit_id="north-hub",
+        )
+
+
+def test_internal_issuer_rejects_missing_capability() -> None:
+    with pytest.raises(TenantContextError, match="capability"):
+        _issue_verified_membership_from_trusted_adapter(
+            _valid_principal(),
+            _valid_membership(),
+            capability=object(),
+        )
+
+
+def test_internal_issuer_rejects_unauthenticated_principal() -> None:
     principal = AuthenticatedPrincipal("operator-17", is_authenticated=False)
     with pytest.raises(TenantContextError, match="authenticated principal"):
-        TenantScope.from_verified_membership(principal, _valid_membership())
+        _issue_verified_membership_from_trusted_adapter(
+            principal,
+            _valid_membership(),
+            capability=_TRUSTED_ADAPTER_CAPABILITY,
+        )
 
 
-def test_scope_rejects_inactive_membership() -> None:
+def test_internal_issuer_rejects_inactive_membership() -> None:
     membership = TenantMembership("operator-17", "customer-1", "north-hub", False)
     with pytest.raises(TenantContextError, match="inactive"):
-        TenantScope.from_verified_membership(_valid_principal(), membership)
+        _issue_verified_membership_from_trusted_adapter(
+            _valid_principal(),
+            membership,
+            capability=_TRUSTED_ADAPTER_CAPABILITY,
+        )
 
 
-def test_scope_rejects_membership_for_another_principal() -> None:
+def test_internal_issuer_rejects_membership_for_another_principal() -> None:
     membership = TenantMembership("operator-99", "customer-1", "north-hub", True)
     with pytest.raises(TenantContextError, match="does not match"):
-        TenantScope.from_verified_membership(_valid_principal(), membership)
+        _issue_verified_membership_from_trusted_adapter(
+            _valid_principal(),
+            membership,
+            capability=_TRUSTED_ADAPTER_CAPABILITY,
+        )
 
 
 def test_scope_rejects_direct_construction() -> None:
@@ -98,23 +155,19 @@ def test_membership_validates_every_identifier_field(
 def test_frozen_contract_objects_reject_mutation() -> None:
     principal = _valid_principal()
     membership = _valid_membership()
-    scope = TenantScope.from_verified_membership(principal, membership)
+    evidence = _verified_evidence()
+    scope = TenantScope.from_verified_membership(evidence)
 
     with pytest.raises(AttributeError):
         principal.subject_id = "operator-99"  # type: ignore[misc]
     with pytest.raises(AttributeError):
         membership.tenant_id = "customer-999"  # type: ignore[misc]
     with pytest.raises(AttributeError):
+        evidence.tenant_id = "customer-999"  # type: ignore[misc]
+    with pytest.raises(AttributeError):
         scope.tenant_id = "customer-999"  # type: ignore[misc]
 
 
-@pytest.mark.parametrize(
-    ("principal", "membership"),
-    [
-        (object(), _valid_membership()),
-        (_valid_principal(), object()),
-    ],
-)
-def test_factory_rejects_untrusted_object_types(principal: object, membership: object) -> None:
-    with pytest.raises(TenantContextError):
-        TenantScope.from_verified_membership(principal, membership)  # type: ignore[arg-type]
+def test_factory_rejects_wrong_evidence_type() -> None:
+    with pytest.raises(TenantContextError, match="trusted adapter-issued"):
+        TenantScope.from_verified_membership(object())  # type: ignore[arg-type]
