@@ -14,19 +14,20 @@ Request headers, query parameters, body fields, and client-selected tenant ident
 
 ## Trusted adapter responsibilities
 
-`TrustedTenantContextAdapter` is the designated composition boundary. Its `resolve` flow:
+`TrustedTenantContextAdapter` is constructed only in `cephas_logisticsos.composition`, the designated application composition root. Its injected authentication provider and membership repository are trusted deployment-controlled dependencies; request handlers and request-scoped code must not construct substitute providers or instantiate the adapter. A source-level AST test enforces that production construction occurs only in `composition.py`. Its `resolve` flow:
 
 1. Passes the presented credential to the configured authentication provider.
 2. Requires the provider to return a validated principal established from successful credential validation.
 3. Queries the configured server-side membership repository using that principal subject and the requested tenant/business-unit selection.
 4. Requires an active membership record whose subject matches the authenticated principal and whose tenant/business-unit match the requested scope.
-5. Issues `_AdapterIssuedTenantMembershipEvidence` and passes it to the scope factory.
+5. Independently compares the returned membership tenant and business-unit IDs with the requested IDs; mismatches are rejected even if a repository implementation returns an incorrect record.
+6. Issues `_AdapterIssuedTenantMembershipEvidence` and passes it to the scope factory.
 
-The authentication provider and membership repository are injected dependencies. Their production implementations are not included in Gate 0.1.2 and must be supplied by the application composition root before a running API uses this flow. The repository must be authoritative and server-side; it must not simply echo request-controlled membership claims.
+The authentication provider and membership repository are injected dependencies. Their production implementations are not included in Gate 0.1.2 and must be supplied by the application composition root before a running API uses this flow. The repository must be authoritative and server-side; it must not simply echo request-controlled membership claims. Dependency injection is a trust decision: a fabricated provider or repository would invalidate the contract, so only deployment-controlled implementations may be passed at startup.
 
 ## Enforced source import boundary
 
-The private evidence issuer and capability live only in `tenancy/_trusted_adapter.py`. The scope factory imports only the evidence marker needed for exact-type validation. A source-level AST architecture test rejects imports of the private adapter module from other production modules and is run as part of the ordinary pytest CI suite.
+The private evidence issuer and capability live only in `tenancy/_trusted_adapter.py`. The scope factory imports only the evidence marker needed for exact-type validation. A source-level AST architecture test rejects direct imports, package-submodule imports, relative package-submodule imports, aliases, and attribute access to the private adapter module from other production modules and is run as part of the ordinary pytest CI suite.
 
 This is a Python application architecture guard, not a security sandbox. Code with arbitrary execution inside the same process can use reflection, dynamic imports, monkey-patching, or other runtime techniques to bypass Python-level conventions. The guard prevents accidental/direct source-level coupling and regression; it is not a cryptographic or process-isolation boundary.
 
@@ -37,7 +38,7 @@ This is a Python application architecture guard, not a security sandbox. Code wi
 - Adapter-issued evidence terminology; evidence itself is not proof unless the configured adapter fulfilled its responsibilities.
 - Scope factory accepts only the adapter evidence type; direct scope construction remains disabled.
 - CI architecture test restricting production source imports of the private evidence module.
-- Regression tests for successful adapter flow, untrusted public carriers, unauthenticated principal, inactive membership, mismatched subject, missing membership, import boundary, identifier validation and immutability.
+- Regression tests for successful adapter flow, untrusted public carriers, unauthenticated principal, inactive/missing membership, mismatched subject, wrong returned tenant, wrong returned business unit, package and relative import bypasses, composition-root construction boundary, identifier validation and immutability.
 
 ## Explicitly not implemented
 
