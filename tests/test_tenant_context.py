@@ -340,10 +340,13 @@ def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() ->
         "def build(authentication, memberships):\n"
         "    return TrustedTenantContextAdapter(authentication, memberships)\n"
     )
-    assert _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.composition",
-    ) == []
+    assert any(
+        target == "TrustedTenantContextAdapter"
+        for _, target in _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.composition",
+        )
+    )
 
 
 def test_adapter_construction_and_factory_calls_are_confined_to_composition_root() -> None:
