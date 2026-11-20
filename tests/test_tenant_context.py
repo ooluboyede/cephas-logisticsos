@@ -82,9 +82,7 @@ def test_adapter_rejects_unauthenticated_principal() -> None:
 def test_adapter_rejects_inactive_authoritative_membership() -> None:
     with pytest.raises(TenantContextError, match="active authoritative membership"):
         _adapter(
-            membership=TenantMembership(
-                "operator-17", "customer-1", "north-hub", False
-            )
+            membership=TenantMembership("operator-17", "customer-1", "north-hub", False)
         ).resolve(
             credential="validated-test-credential",
             tenant_id="customer-1",
@@ -95,9 +93,7 @@ def test_adapter_rejects_inactive_authoritative_membership() -> None:
 def test_adapter_rejects_membership_for_another_subject() -> None:
     with pytest.raises(TenantContextError, match="does not match"):
         _adapter(
-            membership=TenantMembership(
-                "operator-99", "customer-1", "north-hub", True
-            )
+            membership=TenantMembership("operator-99", "customer-1", "north-hub", True)
         ).resolve(
             credential="validated-test-credential",
             tenant_id="customer-1",
@@ -128,8 +124,7 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 if any(
-                    alias.name == private_module
-                    or alias.name.startswith(private_module + ".")
+                    alias.name == private_module or alias.name.startswith(private_module + ".")
                     for alias in node.names
                 ):
                     violations.append(f"{path}:{node.lineno}")
@@ -138,16 +133,11 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
                     node.level > 0 and node.module == "_trusted_adapter"
                 )
                 if imports_private:
-                    allowed_context = (
-                        path.name == "context.py"
-                        and all(
-                            item.name == "_AdapterIssuedTenantMembershipEvidence"
-                            for item in node.names
-                        )
+                    allowed_context = path.name == "context.py" and all(
+                        item.name == "_AdapterIssuedTenantMembershipEvidence" for item in node.names
                     )
-                    allowed_adapter = (
-                        path.name == "trusted_context.py"
-                        and all(item.name == "_issue_adapter_evidence" for item in node.names)
+                    allowed_adapter = path.name == "trusted_context.py" and all(
+                        item.name == "_issue_adapter_evidence" for item in node.names
                     )
                     if not (allowed_context or allowed_adapter):
                         violations.append(f"{path}:{node.lineno}")
