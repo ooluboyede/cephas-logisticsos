@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\Z")
+_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 
 def validate_identifier(value: str, *, field_name: str) -> str:
