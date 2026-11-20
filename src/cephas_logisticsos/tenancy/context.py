@@ -13,6 +13,12 @@ tenant-enforced isolation remain mandatory.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cephas_logisticsos.tenancy._trusted_adapter import (
+        _AdapterIssuedTenantMembershipEvidence,
+    )
 
 from cephas_logisticsos.core.identifiers import validate_identifier
 
@@ -91,7 +97,7 @@ class TenantScope:
     @classmethod
     def from_verified_membership(
         cls,
-        evidence: object,
+        evidence: _AdapterIssuedTenantMembershipEvidence,
     ) -> TenantScope:
         """Build scope only from evidence issued by the trusted adapter module."""
         from cephas_logisticsos.tenancy._trusted_adapter import (
