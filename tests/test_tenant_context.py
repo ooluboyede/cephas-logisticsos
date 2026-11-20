@@ -224,6 +224,7 @@ def _trusted_boundary_call_violations(
     )
     factory = "cephas_logisticsos.composition.build_tenant_context_adapter"
     trusted_modules = {
+        "cephas_logisticsos.tenancy",
         "cephas_logisticsos.tenancy.trusted_context",
         "cephas_logisticsos.composition",
     }
@@ -294,6 +295,11 @@ def _trusted_boundary_call_violations(
         (
             "import cephas_logisticsos.tenancy.trusted_context as tc\n"
             "tc.TrustedTenantContextAdapter(auth, memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "from ..trusted_context import TrustedTenantContextAdapter as Adapter\\n"
+            "Adapter(auth, memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
