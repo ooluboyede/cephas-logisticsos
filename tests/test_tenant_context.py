@@ -81,7 +81,11 @@ def test_adapter_rejects_unauthenticated_principal() -> None:
 
 def test_adapter_rejects_inactive_authoritative_membership() -> None:
     with pytest.raises(TenantContextError, match="active authoritative membership"):
-        _adapter(membership=TenantMembership("operator-17", "customer-1", "north-hub", False)).resolve(
+        _adapter(
+            membership=TenantMembership(
+                "operator-17", "customer-1", "north-hub", False
+            )
+        ).resolve(
             credential="validated-test-credential",
             tenant_id="customer-1",
             business_unit_id="north-hub",
@@ -90,7 +94,11 @@ def test_adapter_rejects_inactive_authoritative_membership() -> None:
 
 def test_adapter_rejects_membership_for_another_subject() -> None:
     with pytest.raises(TenantContextError, match="does not match"):
-        _adapter(membership=TenantMembership("operator-99", "customer-1", "north-hub", True)).resolve(
+        _adapter(
+            membership=TenantMembership(
+                "operator-99", "customer-1", "north-hub", True
+            )
+        ).resolve(
             credential="validated-test-credential",
             tenant_id="customer-1",
             business_unit_id="north-hub",
@@ -117,7 +125,10 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module == "cephas_logisticsos.tenancy._trusted_adapter":
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "cephas_logisticsos.tenancy._trusted_adapter"
+            ):
                 allowed_context = path.name == "context.py" and node.names and all(
                     item.name == "_AdapterIssuedTenantMembershipEvidence"
                     for item in node.names
@@ -129,7 +140,10 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
                 allowed = allowed_context or allowed_adapter
                 if not allowed:
                     violations.append(f"{path}:{node.lineno}")
-            if isinstance(node, ast.ImportFrom) and node.module == "cephas_logisticsos.tenancy.context":
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "cephas_logisticsos.tenancy.context"
+            ):
                 if path.name == "_trusted_adapter.py" and any(
                     item.name.startswith("_issue") or item.name.startswith("_TRUSTED")
                     for item in node.names
