@@ -115,8 +115,6 @@ def test_frozen_contract_objects_reject_mutation() -> None:
         (_valid_principal(), object()),
     ],
 )
-def test_factory_rejects_untrusted_object_types(
-    principal: object, membership: object
-) -> None:
+def test_factory_rejects_untrusted_object_types(principal: object, membership: object) -> None:
     with pytest.raises(TenantContextError):
         TenantScope.from_verified_membership(principal, membership)  # type: ignore[arg-type]
