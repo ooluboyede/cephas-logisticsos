@@ -78,10 +78,7 @@ class TenantScope:
     business_unit_id: str
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
-        raise TypeError(
-            "TenantScope cannot be constructed directly; "
-            "use from_verified_membership"
-        )
+        raise TypeError("TenantScope cannot be constructed directly; use from_verified_membership")
 
     @classmethod
     def from_verified_membership(
