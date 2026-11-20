@@ -57,6 +57,8 @@ class TrustedTenantContextAdapter:
         )
         if membership is None:
             raise TenantContextError("authoritative tenant membership was not found")
+        if type(membership) is not TenantMembership:
+            raise TenantContextError("membership repository returned an invalid membership record")
         if membership.tenant_id != tenant_id:
             raise TenantContextError("membership tenant does not match requested tenant")
         if membership.business_unit_id != business_unit_id:
