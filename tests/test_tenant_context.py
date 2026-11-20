@@ -78,18 +78,14 @@ def test_adapter_rejects_unauthenticated_principal() -> None:
 def test_adapter_rejects_inactive_authoritative_membership() -> None:
     with pytest.raises(TenantContextError, match="active authoritative membership"):
         _resolve(
-            _adapter(
-                membership=TenantMembership("operator-17", "customer-1", "north-hub", False)
-            )
+            _adapter(membership=TenantMembership("operator-17", "customer-1", "north-hub", False))
         )
 
 
 def test_adapter_rejects_membership_for_another_subject() -> None:
     with pytest.raises(TenantContextError, match="does not match"):
         _resolve(
-            _adapter(
-                membership=TenantMembership("operator-99", "customer-1", "north-hub", True)
-            )
+            _adapter(membership=TenantMembership("operator-99", "customer-1", "north-hub", True))
         )
 
 
