@@ -1,4 +1,5 @@
 """Private adapter evidence issuer. Imports are restricted by the CI architecture test."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +23,11 @@ class _AdapterIssuedTenantMembershipEvidence:
     business_unit_id: str
 
     def __init__(
-        self, *, capability: object, subject_id: str, tenant_id: str,
+        self,
+        *,
+        capability: object,
+        subject_id: str,
+        tenant_id: str,
         business_unit_id: str,
     ) -> None:
         if capability is not _TRUSTED_ADAPTER_CAPABILITY:
