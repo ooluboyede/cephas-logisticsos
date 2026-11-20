@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from cephas_logisticsos.tenancy._trusted_adapter import _issue_adapter_evidence
 from cephas_logisticsos.tenancy.context import (
     AuthenticatedPrincipal,
     TenantContextError,
@@ -10,7 +11,6 @@ from cephas_logisticsos.tenancy.context import (
     TenantScope,
     _validate_id,
 )
-from cephas_logisticsos.tenancy._trusted_adapter import _issue_adapter_evidence
 
 
 class AuthenticationProvider(Protocol):
