@@ -9,8 +9,8 @@ from cephas_logisticsos.tenancy import (
 )
 from cephas_logisticsos.tenancy.context import (
     _TRUSTED_ADAPTER_CAPABILITY,
-    _VerifiedTenantMembership,
     _issue_verified_membership_from_trusted_adapter,
+    _VerifiedTenantMembership,
 )
 
 
