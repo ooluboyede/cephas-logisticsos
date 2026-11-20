@@ -2,6 +2,10 @@
 
 A scope must be created only after authentication and a server-side membership
 lookup. Never construct it from tenant identifiers supplied by a client.
+
+Python cannot provide an absolute security boundary around object construction.
+Direct construction is disabled and downstream authorization must still verify
+the scope.
 """
 
 from __future__ import annotations
@@ -29,7 +33,10 @@ def _validate_id(value: str, *, field_name: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class AuthenticatedPrincipal:
-    """Principal identity established by the configured authentication layer."""
+    """Principal identity established by the configured authentication layer.
+
+    This validates shape, not the provenance or cryptographic validity of identity.
+    """
 
     subject_id: str
     is_authenticated: bool
@@ -43,8 +50,7 @@ class AuthenticatedPrincipal:
 class TenantMembership:
     """Membership record returned by a trusted server-side membership lookup.
 
-    The repository or identity adapter producing this record is responsible for
-    verifying membership against the authoritative customer-controlled store.
+    The adapter must verify membership against the authoritative customer store.
     Request headers and request-body fields are not authoritative sources.
     """
 
@@ -59,17 +65,23 @@ class TenantMembership:
         _validate_boolean(self.is_active, field_name="is_active")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class TenantScope:
-    """Validated immutable scope for one principal, tenant and business unit."""
+    """Verified immutable scope; create through the verified-membership factory.
+
+    Python introspection and low-level object allocation can bypass conventions.
+    This is not a substitute for authorization or database-enforced isolation.
+    """
 
     subject_id: str
     tenant_id: str
     business_unit_id: str
 
-    def __post_init__(self) -> None:
-        for field_name in ("subject_id", "tenant_id", "business_unit_id"):
-            _validate_id(getattr(self, field_name), field_name=field_name)
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError(
+            "TenantScope cannot be constructed directly; "
+            "use from_verified_membership"
+        )
 
     @classmethod
     def from_verified_membership(
@@ -77,19 +89,20 @@ class TenantScope:
         principal: AuthenticatedPrincipal,
         membership: TenantMembership,
     ) -> TenantScope:
-        """Build scope from an authenticated principal and trusted membership.
-
-        This is an application-level contract, not a substitute for database
-        row-level security or transaction-scoped authorization enforcement.
-        """
+        """Build scope from trusted authentication and membership adapters."""
+        if not isinstance(principal, AuthenticatedPrincipal):
+            raise TenantContextError("authenticated principal is required")
+        if not isinstance(membership, TenantMembership):
+            raise TenantContextError("trusted tenant membership is required")
         if not principal.is_authenticated:
             raise TenantContextError("authenticated principal is required")
         if not membership.is_active:
             raise TenantContextError("tenant membership is inactive")
         if principal.subject_id != membership.subject_id:
             raise TenantContextError("principal does not match tenant membership")
-        return cls(
-            subject_id=principal.subject_id,
-            tenant_id=membership.tenant_id,
-            business_unit_id=membership.business_unit_id,
-        )
+
+        scope = object.__new__(cls)
+        object.__setattr__(scope, "subject_id", principal.subject_id)
+        object.__setattr__(scope, "tenant_id", membership.tenant_id)
+        object.__setattr__(scope, "business_unit_id", membership.business_unit_id)
+        return scope
