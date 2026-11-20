@@ -119,36 +119,38 @@ def test_adapter_rejects_missing_authoritative_membership() -> None:
 
 def test_architecture_restricts_private_evidence_module_imports() -> None:
     source_root = Path(__file__).parents[1] / "src"
+    private_module = "cephas_logisticsos.tenancy._trusted_adapter"
     violations: list[str] = []
     for path in source_root.rglob("*.py"):
         if path.name == "_trusted_adapter.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.ImportFrom)
-                and node.module == "cephas_logisticsos.tenancy._trusted_adapter"
-            ):
-                allowed_context = path.name == "context.py" and node.names and all(
-                    item.name == "_AdapterIssuedTenantMembershipEvidence"
-                    for item in node.names
-                )
-                allowed_adapter = path.name == "trusted_context.py" and node.names and all(
-                    item.name == "_issue_adapter_evidence"
-                    for item in node.names
-                )
-                allowed = allowed_context or allowed_adapter
-                if not allowed:
-                    violations.append(f"{path}:{node.lineno}")
-            if (
-                isinstance(node, ast.ImportFrom)
-                and node.module == "cephas_logisticsos.tenancy.context"
-            ):
-                if path.name == "_trusted_adapter.py" and any(
-                    item.name.startswith("_issue") or item.name.startswith("_TRUSTED")
-                    for item in node.names
+            if isinstance(node, ast.Import):
+                if any(
+                    alias.name == private_module
+                    or alias.name.startswith(private_module + ".")
+                    for alias in node.names
                 ):
                     violations.append(f"{path}:{node.lineno}")
+            if isinstance(node, ast.ImportFrom):
+                imports_private = node.module == private_module or (
+                    node.level > 0 and node.module == "_trusted_adapter"
+                )
+                if imports_private:
+                    allowed_context = (
+                        path.name == "context.py"
+                        and all(
+                            item.name == "_AdapterIssuedTenantMembershipEvidence"
+                            for item in node.names
+                        )
+                    )
+                    allowed_adapter = (
+                        path.name == "trusted_context.py"
+                        and all(item.name == "_issue_adapter_evidence" for item in node.names)
+                    )
+                    if not (allowed_context or allowed_adapter):
+                        violations.append(f"{path}:{node.lineno}")
     assert violations == []
 
 
