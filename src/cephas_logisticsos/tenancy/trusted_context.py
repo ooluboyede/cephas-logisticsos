@@ -1,4 +1,5 @@
 """Trusted tenant-context adapter composition boundary."""
+
 from __future__ import annotations
 
 from typing import Protocol
@@ -38,9 +39,7 @@ class TrustedTenantContextAdapter:
         self._authentication = authentication
         self._memberships = memberships
 
-    def resolve(
-        self, *, credential: object, tenant_id: str, business_unit_id: str
-    ) -> TenantScope:
+    def resolve(self, *, credential: object, tenant_id: str, business_unit_id: str) -> TenantScope:
         _validate_id(tenant_id, field_name="tenant_id")
         _validate_id(business_unit_id, field_name="business_unit_id")
         principal = self._authentication.authenticate(credential)
