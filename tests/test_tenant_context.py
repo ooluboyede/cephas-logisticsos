@@ -44,7 +44,7 @@ def _adapter(
     )
 
 
-def _resolve(adapter: TrustedTenantContextAdapter | None = None):
+def _resolve(adapter: TrustedTenantContextAdapter | None = None) -> TenantScope:
     return (adapter or _adapter()).resolve(
         credential="validated-test-credential",
         tenant_id="customer-1",
