@@ -15,6 +15,18 @@ class TenantContextError(ValueError):
     """Raised when a trusted tenant scope cannot be established."""
 
 
+def _validate_boolean(value: bool, *, field_name: str) -> None:
+    if type(value) is not bool:
+        raise TenantContextError(f"{field_name} must be a boolean")
+
+
+def _validate_id(value: str, *, field_name: str) -> None:
+    try:
+        validate_identifier(value, field_name=field_name)
+    except ValueError as exc:
+        raise TenantContextError(str(exc)) from exc
+
+
 @dataclass(frozen=True, slots=True)
 class AuthenticatedPrincipal:
     """Principal identity established by the configured authentication layer."""
@@ -23,10 +35,8 @@ class AuthenticatedPrincipal:
     is_authenticated: bool
 
     def __post_init__(self) -> None:
-        try:
-            validate_identifier(self.subject_id, field_name="subject_id")
-        except ValueError as exc:
-            raise TenantContextError(str(exc)) from exc
+        _validate_id(self.subject_id, field_name="subject_id")
+        _validate_boolean(self.is_authenticated, field_name="is_authenticated")
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,10 +55,8 @@ class TenantMembership:
 
     def __post_init__(self) -> None:
         for field_name in ("subject_id", "tenant_id", "business_unit_id"):
-            try:
-                validate_identifier(getattr(self, field_name), field_name=field_name)
-            except ValueError as exc:
-                raise TenantContextError(str(exc)) from exc
+            _validate_id(getattr(self, field_name), field_name=field_name)
+        _validate_boolean(self.is_active, field_name="is_active")
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +66,10 @@ class TenantScope:
     subject_id: str
     tenant_id: str
     business_unit_id: str
+
+    def __post_init__(self) -> None:
+        for field_name in ("subject_id", "tenant_id", "business_unit_id"):
+            _validate_id(getattr(self, field_name), field_name=field_name)
 
     @classmethod
     def from_verified_membership(
