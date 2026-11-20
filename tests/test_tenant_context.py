@@ -99,7 +99,10 @@ def test_adapter_rejects_membership_for_another_subject() -> None:
 
 def test_adapter_rejects_missing_authoritative_membership() -> None:
     with pytest.raises(TenantContextError, match="was not found"):
-        _adapter(membership=None).resolve(
+        TrustedTenantContextAdapter(
+            FakeAuthentication(AuthenticatedPrincipal("operator-17", True)),
+            FakeMembershipRepository(None),
+        ).resolve(
             credential="validated-test-credential",
             tenant_id="customer-1",
             business_unit_id="north-hub",
