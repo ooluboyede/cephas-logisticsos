@@ -70,71 +70,6 @@ class TenantMembership:
         _validate_boolean(self.is_active, field_name="is_active")
 
 
-# This capability is deliberately private and is reserved for trusted adapter
-# code inside the application composition boundary. Python cannot prevent
-# arbitrary code in the same process from introspecting private module state.
-_TRUSTED_ADAPTER_CAPABILITY = object()
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class _VerifiedTenantMembership:
-    """Internal evidence issued only by the trusted adapter boundary."""
-
-    subject_id: str
-    tenant_id: str
-    business_unit_id: str
-
-    def __init__(
-        self,
-        *,
-        capability: object,
-        subject_id: str,
-        tenant_id: str,
-        business_unit_id: str,
-    ) -> None:
-        if capability is not _TRUSTED_ADAPTER_CAPABILITY:
-            raise TypeError("verified membership evidence is issued by trusted adapters only")
-        _validate_id(subject_id, field_name="subject_id")
-        _validate_id(tenant_id, field_name="tenant_id")
-        _validate_id(business_unit_id, field_name="business_unit_id")
-        object.__setattr__(self, "subject_id", subject_id)
-        object.__setattr__(self, "tenant_id", tenant_id)
-        object.__setattr__(self, "business_unit_id", business_unit_id)
-
-
-def _issue_verified_membership_from_trusted_adapter(
-    principal: AuthenticatedPrincipal,
-    membership: TenantMembership,
-    *,
-    capability: object,
-) -> _VerifiedTenantMembership:
-    """Issue evidence after trusted authentication and authoritative lookup.
-
-    Import this private function only from the configured authentication /
-    membership adapter. Never call it from request handlers or with values
-    derived solely from client-controlled input.
-    """
-    if capability is not _TRUSTED_ADAPTER_CAPABILITY:
-        raise TenantContextError("trusted adapter capability is required")
-    if type(principal) is not AuthenticatedPrincipal:
-        raise TenantContextError("authenticated principal is required")
-    if type(membership) is not TenantMembership:
-        raise TenantContextError("trusted tenant membership is required")
-    if not principal.is_authenticated:
-        raise TenantContextError("authenticated principal is required")
-    if not membership.is_active:
-        raise TenantContextError("tenant membership is inactive")
-    if principal.subject_id != membership.subject_id:
-        raise TenantContextError("principal does not match tenant membership")
-
-    return _VerifiedTenantMembership(
-        capability=_TRUSTED_ADAPTER_CAPABILITY,
-        subject_id=principal.subject_id,
-        tenant_id=membership.tenant_id,
-        business_unit_id=membership.business_unit_id,
-    )
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class TenantScope:
     """Immutable scope created only from trusted-adapter-issued evidence.
@@ -156,10 +91,14 @@ class TenantScope:
     @classmethod
     def from_verified_membership(
         cls,
-        evidence: _VerifiedTenantMembership,
+        evidence: object,
     ) -> TenantScope:
-        """Build scope from internal evidence issued by trusted adapters."""
-        if type(evidence) is not _VerifiedTenantMembership:
+        """Build scope only from evidence issued by the trusted adapter module."""
+        from cephas_logisticsos.tenancy._trusted_adapter import (
+            _AdapterIssuedTenantMembershipEvidence,
+        )
+
+        if type(evidence) is not _AdapterIssuedTenantMembershipEvidence:
             raise TenantContextError("trusted adapter-issued membership evidence is required")
 
         scope = object.__new__(cls)
