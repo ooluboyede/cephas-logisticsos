@@ -15,12 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from cephas_logisticsos.core.identifiers import validate_identifier
+
 if TYPE_CHECKING:
     from cephas_logisticsos.tenancy._trusted_adapter import (
         _AdapterIssuedTenantMembershipEvidence,
     )
-
-from cephas_logisticsos.core.identifiers import validate_identifier
 
 
 class TenantContextError(ValueError):
