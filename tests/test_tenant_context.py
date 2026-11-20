@@ -296,11 +296,6 @@ def _trusted_boundary_call_violations(
             "TrustedTenantContextAdapter",
         ),
         (
-            "from ..trusted_context import TrustedTenantContextAdapter as Adapter\\n"
-            "Adapter(auth, memberships)",
-            "TrustedTenantContextAdapter",
-        ),
-        (
             "from cephas_logisticsos.tenancy.trusted_context import "
             "TrustedTenantContextAdapter\n"
             "Adapter = TrustedTenantContextAdapter\nAdapter(auth, memberships)",
@@ -335,6 +330,18 @@ def test_trusted_boundary_guard_resolves_aliases_and_factory_calls(
         module_name="cephas_logisticsos.handlers.request_handler",
     )
     assert any(target == expected_target for _, target in violations)
+
+
+def test_relative_import_aliases_are_resolved_for_nested_tenancy_modules() -> None:
+    source = (
+        "from ..trusted_context import TrustedTenantContextAdapter as Adapter\n"
+        "Adapter(auth, memberships)"
+    )
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.tenancy.handlers.request_handler",
+    )
+    assert any(target == "TrustedTenantContextAdapter" for _, target in violations)
 
 
 def test_application_modules_cannot_use_substitute_providers_to_resolve_scope() -> None:
