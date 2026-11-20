@@ -1,75 +1,62 @@
 # Gate 0.1.2 — Core Tenant Context Contract
 
-**Status: provenance-contract remediation submitted for CI and independent reassessment; not accepted.**
+**Status: focused trusted-adapter boundary remediation submitted; independent acceptance pending.**
 
 ## Scope
 
-Define immutable principal and membership data carriers, an internal trusted-adapter evidence issuance boundary, and an immutable tenant/business-unit scope contract.
+Define immutable untrusted principal and membership data carriers, a dedicated trusted-adapter composition boundary, and an immutable tenant/business-unit scope contract.
 
 ## Public data carriers are not proof
 
-`AuthenticatedPrincipal` and `TenantMembership` are public immutable data carriers. Their constructors validate field shape and values only.
+`AuthenticatedPrincipal` and `TenantMembership` validate data shape only. Constructing either object does not prove authentication, credential provenance, authoritative membership, or authorization.
 
-Constructing either object does **not** prove that:
-- authentication actually succeeded;
-- the subject identifier came from a validated credential;
-- membership exists in the authoritative customer-controlled store; or
-- the membership is authorized for the requested operation.
+Request headers, query parameters, body fields, and client-selected tenant identifiers are not authoritative evidence of identity or membership.
 
-These objects must never be accepted directly as proof of identity or membership by application handlers or the scope factory.
+## Trusted adapter responsibilities
 
-## Trusted-adapter evidence boundary
+`TrustedTenantContextAdapter` is the designated composition boundary. Its `resolve` flow:
 
-The scope factory accepts only the internal `_VerifiedTenantMembership` evidence type. It rejects ordinary `AuthenticatedPrincipal` and `TenantMembership` instances, including instances constructed with matching identifiers and `True` flags.
+1. Passes the presented credential to the configured authentication provider.
+2. Requires the provider to return a validated principal established from successful credential validation.
+3. Queries the configured server-side membership repository using that principal subject and the requested tenant/business-unit selection.
+4. Requires an active membership record whose subject matches the authenticated principal and whose tenant/business-unit match the requested scope.
+5. Issues `_AdapterIssuedTenantMembershipEvidence` and passes it to the scope factory.
 
-The internal `_issue_verified_membership_from_trusted_adapter` function is a private package interface reserved for the configured authentication and membership adapter. It requires the module's private adapter capability and validates:
-- exact principal and membership data-carrier types;
-- authenticated principal state;
-- active membership state;
-- matching subject identifiers; and
-- identifier syntax.
+The authentication provider and membership repository are injected dependencies. Their production implementations are not included in Gate 0.1.2 and must be supplied by the application composition root before a running API uses this flow. The repository must be authoritative and server-side; it must not simply echo request-controlled membership claims.
 
-The trusted adapter is responsible for obtaining the principal from a validated authentication result and retrieving membership from an authoritative server-side repository. It must not derive either value solely from request headers, query parameters, request-body fields or other client-controlled values.
+## Enforced source import boundary
 
-Application request handlers must receive a `TenantScope` produced by the configured trusted adapter flow. They must not import or call private evidence-issuance interfaces.
+The private evidence issuer and capability live only in `tenancy/_trusted_adapter.py`. The scope factory imports only the evidence marker needed for exact-type validation. A source-level AST architecture test rejects imports of the private adapter module from other production modules and is run as part of the ordinary pytest CI suite.
 
-## Important security qualification
+This is a Python application architecture guard, not a security sandbox. Code with arbitrary execution inside the same process can use reflection, dynamic imports, monkey-patching, or other runtime techniques to bypass Python-level conventions. The guard prevents accidental/direct source-level coupling and regression; it is not a cryptographic or process-isolation boundary.
 
-This is an application-interface and accidental-misuse boundary, not a sandbox against malicious code execution inside the same Python process. Python private names, module state and object construction can be bypassed by sufficiently privileged in-process code. The private capability is not a cryptographic credential and must not be represented as one.
+## Implemented in this gate
 
-Before a running API uses this contract, the application composition root must wire the actual trusted authentication adapter and authoritative membership repository. The current gate defines that boundary; it does not implement those integrations.
-
-## Security properties implemented in this gate
-
-- Immutable principal and membership data carriers with strict field validation.
-- Public principal and membership objects are not accepted directly by the scope factory.
-- Internal evidence issuance is capability-gated and reserved for trusted adapter code.
-- Scope factory accepts only the internal evidence type.
-- Evidence issuance checks authenticated state, active membership and subject equality.
-- Direct `TenantScope` construction is disabled.
-- Tests prove caller-created public principal and membership objects cannot be passed to the scope factory as verified evidence.
-- Negative, boundary, wrong-type and immutability tests cover the contract.
+- Immutable public principal and membership data carriers with strict field validation.
+- Dedicated trusted adapter contract separating credential validation from authoritative membership lookup.
+- Adapter-issued evidence terminology; evidence itself is not proof unless the configured adapter fulfilled its responsibilities.
+- Scope factory accepts only the adapter evidence type; direct scope construction remains disabled.
+- CI architecture test restricting production source imports of the private evidence module.
+- Regression tests for successful adapter flow, untrusted public carriers, unauthenticated principal, inactive membership, mismatched subject, missing membership, import boundary, identifier validation and immutability.
 
 ## Explicitly not implemented
 
-This gate does not implement:
-- production authentication or identity-provider integration;
-- an authoritative membership repository or database lookup;
-- authorization policy evaluation;
-- PostgreSQL Row-Level Security (RLS);
-- transaction-scoped database context or connection-pool isolation;
-- cross-tenant isolation for background jobs, exports, caches or storage;
-- tenant-isolated ML training or model operations;
-- production penetration testing or deployment certification.
+- Production authentication provider or identity-provider integration.
+- Production authoritative membership repository.
+- Authorization policy evaluation.
+- PostgreSQL Row-Level Security (RLS).
+- Transaction-scoped database context or connection-pool isolation.
+- Cross-tenant isolation for background jobs, exports, caches or storage.
+- Tenant-isolated ML training or model operations.
+- Production penetration testing or deployment certification.
 
-These remain mandatory later-gate controls. The private capability must not be used as a substitute for authentication, authorization, database-enforced tenant/business-unit isolation or independent security testing.
+These remain mandatory later-gate controls. This contract does not claim production readiness or certify deployed tenant isolation.
 
 ## Acceptance evidence
 
-- Tests proving caller-created public principal/membership objects are rejected by the scope factory.
-- Tests proving the evidence constructor rejects callers without the private capability.
-- Tests covering trusted-issuer validation and scope creation.
-- Ruff lint and format checks.
-- Mypy strict type checking.
-- Full test suite and configured coverage threshold.
-- Independent reassessment of the exact remediated commit.
+- Trusted adapter flow obtains principal from the authentication provider and membership from the authoritative repository interface.
+- Public caller-created data carriers cannot be passed directly to the scope factory.
+- Production-source import-boundary regression test passes.
+- Negative, boundary, wrong-type and immutability tests pass.
+- Ruff lint and formatting, Mypy strict, full test suite and configured coverage pass on the exact submitted commit.
+- Independent reassessment accepts the exact commit.
