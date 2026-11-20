@@ -160,9 +160,7 @@ class TenantScope:
     ) -> TenantScope:
         """Build scope from internal evidence issued by trusted adapters."""
         if type(evidence) is not _VerifiedTenantMembership:
-            raise TenantContextError(
-                "trusted adapter-issued membership evidence is required"
-            )
+            raise TenantContextError("trusted adapter-issued membership evidence is required")
 
         scope = object.__new__(cls)
         object.__setattr__(scope, "subject_id", evidence.subject_id)
