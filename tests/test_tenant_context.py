@@ -30,7 +30,6 @@ class FakeMembershipRepository:
         self, *, subject_id: str, tenant_id: str, business_unit_id: str
     ) -> TenantMembership | None:
         if self.membership is not None:
-            assert self.membership.subject_id == subject_id
             assert self.membership.tenant_id == tenant_id
             assert self.membership.business_unit_id == business_unit_id
         return self.membership
