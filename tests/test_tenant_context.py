@@ -288,35 +288,35 @@ def _trusted_boundary_call_violations(
     [
         (
             "from cephas_logisticsos.tenancy.trusted_context import "
-            "TrustedTenantContextAdapter as Adapter\\nAdapter(auth, memberships)",
+            "TrustedTenantContextAdapter as Adapter\nAdapter(auth, memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
-            "import cephas_logisticsos.tenancy.trusted_context as tc\\n"
+            "import cephas_logisticsos.tenancy.trusted_context as tc\n"
             "tc.TrustedTenantContextAdapter(auth, memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
             "from cephas_logisticsos.tenancy.trusted_context import "
-            "TrustedTenantContextAdapter\\n"
-            "Adapter = TrustedTenantContextAdapter\\nAdapter(auth, memberships)",
+            "TrustedTenantContextAdapter\n"
+            "Adapter = TrustedTenantContextAdapter\nAdapter(auth, memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
             "from cephas_logisticsos.composition import "
-            "build_tenant_context_adapter as compose\\n"
+            "build_tenant_context_adapter as compose\n"
             "compose(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "import cephas_logisticsos.composition as composition\\n"
+            "import cephas_logisticsos.composition as composition\n"
             "composition.build_tenant_context_adapter("
             "authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "make_adapter = build_tenant_context_adapter\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "make_adapter = build_tenant_context_adapter\n"
             "make_adapter(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
@@ -336,9 +336,9 @@ def test_trusted_boundary_guard_resolves_aliases_and_factory_calls(
 def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() -> None:
     source = (
         "from cephas_logisticsos.tenancy.trusted_context import "
-        "TrustedTenantContextAdapter\\n"
-        "def build(authentication, memberships):\\n"
-        "    return TrustedTenantContextAdapter(authentication, memberships)\\n"
+        "TrustedTenantContextAdapter\n"
+        "def build(authentication, memberships):\n"
+        "    return TrustedTenantContextAdapter(authentication, memberships)\n"
     )
     assert _trusted_boundary_call_violations(
         source,
