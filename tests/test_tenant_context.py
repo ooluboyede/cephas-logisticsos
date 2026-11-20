@@ -10,7 +10,7 @@ from cephas_logisticsos.tenancy import (
     TenantMembership,
     TenantScope,
 )
-from cephas_logisticsos.tenancy._trusted_adapter import TrustedTenantContextAdapter
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
 
 
 class FakeAuthentication:
@@ -118,10 +118,15 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module == "cephas_logisticsos.tenancy._trusted_adapter":
-                allowed = path.name == "context.py" and node.names and all(
+                allowed_context = path.name == "context.py" and node.names and all(
                     item.name == "_AdapterIssuedTenantMembershipEvidence"
                     for item in node.names
                 )
+                allowed_adapter = path.name == "trusted_context.py" and node.names and all(
+                    item.name == "_issue_adapter_evidence"
+                    for item in node.names
+                )
+                allowed = allowed_context or allowed_adapter
                 if not allowed:
                     violations.append(f"{path}:{node.lineno}")
             if isinstance(node, ast.ImportFrom) and node.module == "cephas_logisticsos.tenancy.context":
