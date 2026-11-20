@@ -197,21 +197,166 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
     assert violations == []
 
 
-def test_adapter_construction_is_confined_to_composition_root() -> None:
+def _resolve_imported_symbol(
+    expression: ast.expr,
+    imported_symbols: dict[str, str],
+) -> str | None:
+    if isinstance(expression, ast.Name):
+        return imported_symbols.get(expression.id, expression.id)
+    if isinstance(expression, ast.Attribute):
+        parent = _resolve_imported_symbol(expression.value, imported_symbols)
+        return f"{parent}.{expression.attr}" if parent else None
+    return None
+
+
+def _trusted_boundary_call_violations(
+    source: str,
+    *,
+    module_name: str,
+) -> list[tuple[int, str]]:
+    """Resolve ordinary Python import/assignment aliases for trusted constructors."""
+    tree = ast.parse(source)
+    imported_symbols: dict[str, str] = {}
+    violations: list[tuple[int, str]] = []
+    package_name = module_name.rpartition(".")[0]
+    constructor = (
+        "cephas_logisticsos.tenancy.trusted_context.TrustedTenantContextAdapter"
+    )
+    factory = "cephas_logisticsos.composition.build_tenant_context_adapter"
+    trusted_modules = {
+        "cephas_logisticsos.tenancy.trusted_context",
+        "cephas_logisticsos.composition",
+    }
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name.split(".")[0]
+                imported_symbols[local_name] = alias.name if alias.asname else local_name
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                package_parts = package_name.split(".") if package_name else []
+                keep = max(0, len(package_parts) - node.level + 1)
+                prefix = ".".join(package_parts[:keep])
+                if node.module:
+                    prefix = ".".join(part for part in (prefix, node.module) if part)
+            else:
+                prefix = node.module or ""
+            if any(alias.name == "*" for alias in node.names):
+                if prefix in trusted_modules:
+                    violations.append((node.lineno, f"star-import:{prefix}"))
+                continue
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                imported_symbols[local_name] = ".".join(
+                    part for part in (prefix, alias.name) if part
+                )
+
+    # Resolve simple assignment aliases such as AdapterAlias = Adapter.
+    for _ in range(len(imported_symbols) + 1):
+        changed = False
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            value = node.value
+            if value is None:
+                continue
+            resolved = _resolve_imported_symbol(value, imported_symbols)
+            if not resolved:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and imported_symbols.get(target.id) != resolved:
+                    imported_symbols[target.id] = resolved
+                    changed = True
+        if not changed:
+            break
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        resolved = _resolve_imported_symbol(node.func, imported_symbols)
+        if resolved == constructor:
+            violations.append((node.lineno, "TrustedTenantContextAdapter"))
+        elif resolved == factory:
+            violations.append((node.lineno, "build_tenant_context_adapter"))
+    return violations
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_target"),
+    [
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import "
+            "TrustedTenantContextAdapter as Adapter\\nAdapter(auth, memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "import cephas_logisticsos.tenancy.trusted_context as tc\\n"
+            "tc.TrustedTenantContextAdapter(auth, memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import "
+            "TrustedTenantContextAdapter\\n"
+            "Adapter = TrustedTenantContextAdapter\\nAdapter(auth, memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "from cephas_logisticsos.composition import "
+            "build_tenant_context_adapter as compose\\n"
+            "compose(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "import cephas_logisticsos.composition as composition\\n"
+            "composition.build_tenant_context_adapter("
+            "authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "make_adapter = build_tenant_context_adapter\\n"
+            "make_adapter(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+    ],
+)
+def test_trusted_boundary_guard_resolves_aliases_and_factory_calls(
+    source: str,
+    expected_target: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == expected_target for _, target in violations)
+
+
+def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() -> None:
+    source = (
+        "from cephas_logisticsos.tenancy.trusted_context import "
+        "TrustedTenantContextAdapter\\n"
+        "def build(authentication, memberships):\\n"
+        "    return TrustedTenantContextAdapter(authentication, memberships)\\n"
+    )
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.composition",
+    ) == []
+
+
+def test_adapter_construction_and_factory_calls_are_confined_to_composition_root() -> None:
     source_root = Path(__file__).parents[1] / "src"
     violations: list[str] = []
     for path in source_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and (
-                (isinstance(node.func, ast.Name) and node.func.id == "TrustedTenantContextAdapter")
-                or (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "TrustedTenantContextAdapter"
-                )
-            ):
-                if path.name != "composition.py":
-                    violations.append(f"{path}:{node.lineno}")
+        module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
+        for line, target in _trusted_boundary_call_violations(
+            path.read_text(encoding="utf-8"),
+            module_name=module_name,
+        ):
+            if module_name != "cephas_logisticsos.composition":
+                violations.append(f"{path}:{line}:{target}")
     assert violations == []
 
 
