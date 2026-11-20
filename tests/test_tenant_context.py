@@ -333,6 +333,36 @@ def test_trusted_boundary_guard_resolves_aliases_and_factory_calls(
     assert any(target == expected_target for _, target in violations)
 
 
+def test_application_modules_cannot_use_substitute_providers_to_resolve_scope() -> None:
+    unauthorized_sources = [
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import "
+            "TrustedTenantContextAdapter as Adapter\n"
+            "class FakeAuthentication:\n"
+            "    def authenticate(self, credential): return fake_principal\n"
+            "class FakeMembershipRepository:\n"
+            "    def get_membership(self, **kwargs): return fake_membership\n"
+            "adapter = Adapter(FakeAuthentication(), FakeMembershipRepository())\n"
+            "scope = adapter.resolve(credential='anything', tenant_id='victim', "
+            "business_unit_id='restricted')\n"
+        ),
+        (
+            "from cephas_logisticsos.composition import "
+            "build_tenant_context_adapter as compose\n"
+            "adapter = compose(authentication=FakeAuthentication(), "
+            "memberships=FakeMembershipRepository())\n"
+            "scope = adapter.resolve(credential='anything', tenant_id='victim', "
+            "business_unit_id='restricted')\n"
+        ),
+    ]
+    for source in unauthorized_sources:
+        violations = _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        assert violations
+
+
 def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() -> None:
     source = (
         "from cephas_logisticsos.tenancy.trusted_context import "
