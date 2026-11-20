@@ -14,7 +14,7 @@ Request headers, query parameters, body fields, and client-selected tenant ident
 
 ## Trusted adapter responsibilities
 
-`TrustedTenantContextAdapter` is constructed only in `cephas_logisticsos.composition`, the designated application composition root. Its injected authentication provider and membership repository are trusted deployment-controlled dependencies; request handlers and request-scoped code must not construct substitute providers or instantiate the adapter. A source-level AST test enforces that production construction occurs only in `composition.py`. Its `resolve` flow:
+`TrustedTenantContextAdapter` is constructed only in `cephas_logisticsos.composition`, the designated application composition root. Its injected authentication provider and membership repository are trusted deployment-controlled dependencies; request handlers and request-scoped code must not construct substitute providers or instantiate the adapter. A source-level AST architecture test enforces that both `TrustedTenantContextAdapter` construction and calls to `build_tenant_context_adapter()` occur only in `composition.py`. The test resolves ordinary imported aliases, module aliases, simple assignment aliases, and relative imports before checking call targets. Its `resolve` flow:
 
 1. Passes the presented credential to the configured authentication provider.
 2. Requires the provider to return a validated principal established from successful credential validation.
@@ -23,7 +23,13 @@ Request headers, query parameters, body fields, and client-selected tenant ident
 5. Independently compares the returned membership tenant and business-unit IDs with the requested IDs; mismatches are rejected even if a repository implementation returns an incorrect record.
 6. Issues `_AdapterIssuedTenantMembershipEvidence` and passes it to the scope factory.
 
-The authentication provider and membership repository are injected dependencies. Their production implementations are not included in Gate 0.1.2 and must be supplied by the application composition root before a running API uses this flow. The repository must be authoritative and server-side; it must not simply echo request-controlled membership claims. Dependency injection is a trust decision: a fabricated provider or repository would invalidate the contract, so only deployment-controlled implementations may be passed at startup.
+The authentication provider and membership repository are injected dependencies. Their production implementations are not included in Gate 0.1.2 and must be created by deployment-controlled startup wiring and passed to the composition root. Request handlers and ordinary application modules must receive the already-composed adapter; they must not instantiate the adapter or call the composition factory with substitute providers. The repository must be authoritative and server-side; it must not simply echo request-controlled membership claims. Dependency injection is a trust decision: fabricated providers invalidate the contract.
+
+## Enforced source construction boundary
+
+The AST architecture test resolves imported names and module aliases, including simple assignment aliases, and rejects calls to `TrustedTenantContextAdapter` or `build_tenant_context_adapter()` outside `cephas_logisticsos.composition`. It also rejects star imports from the trusted adapter and composition modules outside the composition root. Regression fixtures cover aliased constructor calls, module-qualified constructor calls, assignment aliases, and direct, aliased, and module-qualified composition-factory calls from an ordinary application module.
+
+This control is intentionally a source-level architecture rule for ordinary statically expressed Python code. It is not a runtime authorization mechanism and does not prevent arbitrary same-process code from dynamically obtaining callables, monkey-patching modules, or executing code outside the reviewed source tree. Deployment startup wiring remains the trusted composition point.
 
 ## Enforced source import boundary
 
@@ -37,8 +43,8 @@ This is a Python application architecture guard, not a security sandbox. Code wi
 - Dedicated trusted adapter contract separating credential validation from authoritative membership lookup.
 - Adapter-issued evidence terminology; evidence itself is not proof unless the configured adapter fulfilled its responsibilities.
 - Scope factory accepts only the adapter evidence type; direct scope construction remains disabled.
-- CI architecture test restricting production source imports of the private evidence module.
-- Regression tests for successful adapter flow, untrusted public carriers, unauthenticated principal, inactive/missing membership, mismatched subject, wrong returned tenant, wrong returned business unit, package and relative import bypasses, composition-root construction boundary, identifier validation and immutability.
+- CI architecture tests restricting production source imports of the private evidence module and restricting trusted-adapter construction and composition-factory calls to the designated composition root, including ordinary aliases.
+- Regression tests for successful adapter flow, untrusted public carriers, unauthenticated principal, inactive/missing membership, mismatched subject, wrong returned tenant, wrong returned business unit, package and relative import bypasses, aliased constructor and factory-call bypasses, composition-root construction boundary, identifier validation and immutability.
 
 ## Explicitly not implemented
 
