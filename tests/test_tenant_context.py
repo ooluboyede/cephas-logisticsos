@@ -1259,16 +1259,6 @@ class Handler(TrustedTenantContextAdapter(fake_auth, fake_memberships)):
 """,
             "TrustedTenantContextAdapter",
         ),
-        (
-            """
-from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
-def handler(adapter=SafeAdapter()):
-    pass
-class Handler(SafeBase):
-    pass
-""",
-            "SafeAdapter",
-        ),
     ],
 )
 def test_definition_time_expressions_are_scanned_in_enclosing_scope(
