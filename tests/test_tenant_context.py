@@ -360,9 +360,53 @@ def _trusted_boundary_call_violations(
         while stack:
             node = stack.pop()
             collected.append(node)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # Decorators, defaults and annotations execute (or are evaluated
+                # under the active annotation mode) in the enclosing scope.
+                # Scan these expressions here, but leave the function body for
+                # its own lexical environment below.
+                definition_expressions: list[ast.AST] = [
+                    *node.decorator_list,
+                    *node.args.defaults,
+                    *(item for item in node.args.kw_defaults if item is not None),
+                ]
+                for argument in [
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                ]:
+                    if argument.annotation is not None:
+                        definition_expressions.append(argument.annotation)
+                if node.args.vararg is not None and node.args.vararg.annotation is not None:
+                    definition_expressions.append(node.args.vararg.annotation)
+                if node.args.kwarg is not None and node.args.kwarg.annotation is not None:
+                    definition_expressions.append(node.args.kwarg.annotation)
+                if node.returns is not None:
+                    definition_expressions.append(node.returns)
+                # Generic type-parameter bounds/defaults are also definition-time
+                # expressions on Python versions that expose type_params.
+                definition_expressions.extend(getattr(node, "type_params", ()))
+                stack.extend(reversed(definition_expressions))
+                continue
+            if isinstance(node, ast.ClassDef):
+                # Class decorators, bases and keyword values execute in the
+                # enclosing scope; the class body has its own namespace.
+                definition_expressions = [
+                    *node.decorator_list,
+                    *node.bases,
+                    *(keyword.value for keyword in node.keywords),
+                ]
+                definition_expressions.extend(getattr(node, "type_params", ()))
+                stack.extend(reversed(definition_expressions))
                 continue
             if isinstance(node, ast.Lambda):
+                # Lambda defaults execute in the enclosing scope; its body is a
+                # separate function scope and is intentionally not traversed here.
+                definition_expressions = [
+                    *node.args.defaults,
+                    *(item for item in node.args.kw_defaults if item is not None),
+                ]
+                stack.extend(reversed(definition_expressions))
                 continue
             stack.extend(reversed(list(ast.iter_child_nodes(node))))
         return collected
@@ -1185,3 +1229,104 @@ def test_frozen_contract_objects_reject_mutation() -> None:
         membership.tenant_id = "customer-999"  # type: ignore[misc]
     with pytest.raises(AttributeError):
         scope.tenant_id = "customer-999"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_target"),
+    [
+        (
+            """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def handler(adapter=TrustedTenantContextAdapter(fake_auth, fake_memberships)):
+    pass
+""",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+@build_tenant_context_adapter(authentication=fake_auth, memberships=fake_memberships)
+def handler():
+    pass
+""",
+            "build_tenant_context_adapter",
+        ),
+        (
+            """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+class Handler(TrustedTenantContextAdapter(fake_auth, fake_memberships)):
+    pass
+""",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def handler(adapter=SafeAdapter()):
+    pass
+class Handler(SafeBase):
+    pass
+""",
+            "SafeAdapter",
+        ),
+    ],
+)
+def test_definition_time_expressions_are_scanned_in_enclosing_scope(
+    source: str,
+    expected_target: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == expected_target for _, target in violations)
+
+
+def test_production_source_scan_rejects_definition_time_trusted_calls() -> None:
+    unauthorized_modules = {
+        "cephas_logisticsos.handlers.default_constructor": """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def handler(adapter=TrustedTenantContextAdapter(fake_auth, fake_memberships)):
+    pass
+""",
+        "cephas_logisticsos.handlers.decorator_factory": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+@build_tenant_context_adapter(authentication=fake_auth, memberships=fake_memberships)
+def handler():
+    pass
+""",
+        "cephas_logisticsos.handlers.class_base_constructor": """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+class Handler(TrustedTenantContextAdapter(fake_auth, fake_memberships)):
+    pass
+""",
+    }
+    violations = _production_source_boundary_violations(unauthorized_modules)
+    assert len(violations) == 3
+    assert any("TrustedTenantContextAdapter" in item for item in violations)
+    assert any("build_tenant_context_adapter" in item for item in violations)
+
+
+def test_definition_time_safe_expressions_and_composition_root_exception() -> None:
+    safe_source = """
+from safe_module import SafeAdapter, safe_decorator, SafeBase
+@safe_decorator
+def handler(adapter=SafeAdapter()):
+    pass
+class Handler(SafeBase):
+    pass
+"""
+    assert _trusted_boundary_call_violations(
+        safe_source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    ) == []
+
+    composition_source = """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+@TrustedTenantContextAdapter(authentication, memberships)
+def handler():
+    pass
+"""
+    assert _production_source_boundary_violations(
+        {"cephas_logisticsos.composition": composition_source}
+    ) == []
