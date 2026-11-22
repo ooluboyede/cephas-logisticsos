@@ -197,6 +197,50 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
     assert violations == []
 
 
+def _literal_container_index(expression: ast.expr) -> int | None:
+    """Return a supported integer literal index, excluding booleans."""
+    if isinstance(expression, ast.Constant):
+        index = expression.value
+    elif (
+        isinstance(expression, ast.UnaryOp)
+        and isinstance(expression.op, ast.USub)
+        and isinstance(expression.operand, ast.Constant)
+    ):
+        index = -expression.operand.value
+    else:
+        return None
+    return index if isinstance(index, int) and not isinstance(index, bool) else None
+
+
+def _resolve_container_expression(
+    expression: ast.expr,
+    imported_symbols: dict[str, str | ast.expr],
+) -> ast.Tuple | ast.List | None:
+    """Resolve only literal tuple/list containers and literal nested indexing.
+
+    Unsupported expressions are outside this static resolver's accepted grammar
+    and are not treated as proof that a source module is safe.
+    """
+    if isinstance(expression, (ast.Tuple, ast.List)):
+        return expression
+    if isinstance(expression, ast.Name):
+        mapped = imported_symbols.get(expression.id)
+        return (
+            _resolve_container_expression(mapped, imported_symbols)
+            if isinstance(mapped, ast.expr)
+            else None
+        )
+    if isinstance(expression, ast.Subscript):
+        container = _resolve_container_expression(expression.value, imported_symbols)
+        index = _literal_container_index(expression.slice)
+        if container is None or index is None:
+            return None
+        if -len(container.elts) <= index < len(container.elts):
+            selected = container.elts[index]
+            return _resolve_container_expression(selected, imported_symbols)
+    return None
+
+
 def _resolve_imported_symbol(
     expression: ast.expr,
     imported_symbols: dict[str, str | ast.expr],
@@ -224,25 +268,9 @@ def _resolve_imported_symbol(
                 return trusted_target
         return next(iter(candidates)) if len(candidates) == 1 else None
     if isinstance(expression, ast.Subscript):
-        container = expression.value
-        if isinstance(container, ast.Name):
-            mapped_container = imported_symbols.get(container.id)
-            if isinstance(mapped_container, ast.expr):
-                container = mapped_container
-        if not isinstance(container, (ast.Tuple, ast.List)):
-            return None
-        index_node = expression.slice
-        if isinstance(index_node, ast.Constant):
-            index = index_node.value
-        elif (
-            isinstance(index_node, ast.UnaryOp)
-            and isinstance(index_node.op, ast.USub)
-            and isinstance(index_node.operand, ast.Constant)
-        ):
-            index = -index_node.operand.value
-        else:
-            index = None
-        if isinstance(index, int) and not isinstance(index, bool):
+        container = _resolve_container_expression(expression.value, imported_symbols)
+        index = _literal_container_index(expression.slice)
+        if container is not None and index is not None:
             elements = container.elts
             if -len(elements) <= index < len(elements):
                 return _resolve_imported_symbol(elements[index], imported_symbols)
@@ -780,6 +808,100 @@ def test_production_source_scan_rejects_remaining_container_indices_and_else_bra
     }
     violations = _production_source_boundary_violations(unauthorized_modules)
     assert len(violations) == 3
+
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_target"),
+    [
+        (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "containers = ([build_tenant_context_adapter],)\\n"
+            "inner = containers[0]\\n"
+            "factory = inner[0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "containers = ([TrustedTenantContextAdapter],)\\n"
+            "inner = containers[0]\\n"
+            "Adapter = inner[-1]\\n"
+            "Adapter(fake_auth, fake_memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "containers = ([build_tenant_context_adapter],)\\n"
+            "factory = containers[0][0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "containers = ([TrustedTenantContextAdapter],)\\n"
+            "Adapter = containers[0][-1]\\n"
+            "Adapter(fake_auth, fake_memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+    ],
+)
+def test_trusted_boundary_guard_resolves_nested_container_index_aliases(
+    source: str,
+    expected_target: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == expected_target for _, target in violations)
+
+
+def test_production_source_scan_rejects_nested_container_index_aliases() -> None:
+    unauthorized_modules = {
+        "cephas_logisticsos.handlers.nested_assigned_factory": (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "containers = ([build_tenant_context_adapter],)\\n"
+            "inner = containers[0]\\n"
+            "factory = inner[0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)"
+        ),
+        "cephas_logisticsos.handlers.nested_assigned_constructor": (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "containers = ([TrustedTenantContextAdapter],)\\n"
+            "inner = containers[0]\\n"
+            "Adapter = inner[-1]\\n"
+            "Adapter(fake_auth, fake_memberships)"
+        ),
+        "cephas_logisticsos.handlers.nested_chained_factory": (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "containers = ([build_tenant_context_adapter],)\\n"
+            "factory = containers[0][0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)"
+        ),
+        "cephas_logisticsos.handlers.nested_chained_constructor": (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "containers = ([TrustedTenantContextAdapter],)\\n"
+            "Adapter = containers[0][-1]\\n"
+            "Adapter(fake_auth, fake_memberships)"
+        ),
+    }
+    violations = _production_source_boundary_violations(unauthorized_modules)
+    assert len(violations) == 4
+    assert any("build_tenant_context_adapter" in item for item in violations)
+    assert any("TrustedTenantContextAdapter" in item for item in violations)
+
+
+def test_production_source_scan_preserves_exact_composition_root_exception() -> None:
+    source = (
+        "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+        "containers = ([TrustedTenantContextAdapter],)\\n"
+        "Adapter = containers[0][-1]\\n"
+        "adapter = Adapter(authentication, memberships)"
+    )
+    assert _production_source_boundary_violations(
+        {"cephas_logisticsos.composition": source}
+    ) == []
 
 
 def test_scope_rejects_direct_construction() -> None:
