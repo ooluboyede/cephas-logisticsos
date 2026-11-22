@@ -206,7 +206,9 @@ def _resolve_imported_symbol(
     if isinstance(expression, ast.Attribute):
         parent = _resolve_imported_symbol(expression.value, imported_symbols)
         return f"{parent}.{expression.attr}" if parent else None
-    if isinstance(expression, ast.Subscript) and isinstance(expression.value, (ast.Tuple, ast.List)):
+    if isinstance(expression, ast.Subscript) and isinstance(
+        expression.value, (ast.Tuple, ast.List)
+    ):
         index_node = expression.slice
         if isinstance(index_node, ast.Constant):
             index = index_node.value
