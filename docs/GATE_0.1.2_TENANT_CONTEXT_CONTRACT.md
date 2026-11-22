@@ -31,6 +31,20 @@ The AST architecture test resolves imported names and module aliases, including 
 
 This control is intentionally a source-level architecture rule for ordinary statically expressed Python code. It is not a runtime authorization mechanism and does not prevent arbitrary same-process code from dynamically obtaining callables, monkey-patching modules, or executing code outside the reviewed source tree. Deployment startup wiring remains the trusted composition point.
 
+## Lexical-scope-aware alias resolution
+
+The source guard maintains independent symbol environments for module, function, and class scopes. Local assignments, imports, parameters, and other statically identified bindings shadow inherited names in that scope without mutating the parent environment. Nested functions are analyzed against their enclosing function/module bindings; methods are not treated as closing over the class namespace.
+
+Regression coverage includes:
+- A function-local assignment shadowing the trusted constructor while a module-level constructor call remains detectable.
+- A function-local assignment shadowing the trusted factory while a module-level factory call remains detectable.
+- Nested function shadowing and local imports.
+- Class-body bindings that do not overwrite module-level constructor/factory imports.
+- Production-source scan coverage for the same patterns, including module-level calls after local shadowing.
+- A negative control proving a local helper call through a locally shadowed safe name is not misclassified as a trusted constructor call.
+
+The resolver is a conservative static architecture check, not a Python sandbox or complete interpreter. Dynamic reflection, dynamic code execution, arbitrary runtime mutation, and complex global/nonlocal rebinding are outside its guarantee and require separate runtime/security controls.
+
 ## Enforced source import boundary
 
 The private evidence issuer and capability live only in `tenancy/_trusted_adapter.py`. The scope factory imports only the evidence marker needed for exact-type validation. A source-level AST architecture test rejects direct imports, package-submodule imports, relative package-submodule imports, aliases, and attribute access to the private adapter module from other production modules and is run as part of the ordinary pytest CI suite.
