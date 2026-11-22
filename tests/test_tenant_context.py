@@ -1136,6 +1136,8 @@ adapter = TrustedTenantContextAdapter(fake_auth, fake_memberships)
     assert len(violations) == 1
     assert "TrustedTenantContextAdapter" in violations[0]
 
+
+
 def test_scope_rejects_direct_construction() -> None:
     with pytest.raises(TypeError, match="cannot be constructed directly"):
         TenantScope(
