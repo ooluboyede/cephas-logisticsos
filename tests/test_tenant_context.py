@@ -233,9 +233,7 @@ def _bind_assignment_aliases(
             return False
         changed = False
         for target_item, value_item in zip(target.elts, value.elts, strict=True):
-            changed = _bind_assignment_aliases(
-                target_item, value_item, imported_symbols
-            ) or changed
+            changed = _bind_assignment_aliases(target_item, value_item, imported_symbols) or changed
         return changed
     return False
 
