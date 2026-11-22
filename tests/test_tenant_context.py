@@ -401,6 +401,7 @@ def _trusted_boundary_call_violations(
         inherited_symbols: dict[str, str | ast.expr | None],
         *,
         scope_kind: str,
+        parameters: set[str] | None = None,
     ) -> None:
         nodes = direct_scope_nodes(statements)
         symbols = dict(inherited_symbols)
@@ -409,20 +410,8 @@ def _trusted_boundary_call_violations(
         nested_scopes: list[ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef] = []
 
         # Function parameters are local bindings too and shadow inherited names.
-        if scope_kind == "function":
-            for statement in statements:
-                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    arguments = statement.args
-                    for argument in [
-                        *arguments.posonlyargs,
-                        *arguments.args,
-                        *arguments.kwonlyargs,
-                    ]:
-                        local_names.add(argument.arg)
-                    if arguments.vararg is not None:
-                        local_names.add(arguments.vararg.arg)
-                    if arguments.kwarg is not None:
-                        local_names.add(arguments.kwarg.arg)
+        if parameters:
+            local_names.update(parameters)
 
         # Predeclare names bound in this lexical scope. This models Python's
         # function-local shadowing even when the assignment appears after a call.
@@ -489,7 +478,25 @@ def _trusted_boundary_call_violations(
             if isinstance(nested, ast.ClassDef):
                 analyze_scope(nested.body, symbols, scope_kind="class")
             else:
-                analyze_scope(nested.body, child_parent if scope_kind == "class" else symbols, scope_kind="function")
+                arguments = nested.args
+                parameter_names = {
+                    argument.arg
+                    for argument in [
+                        *arguments.posonlyargs,
+                        *arguments.args,
+                        *arguments.kwonlyargs,
+                    ]
+                }
+                if arguments.vararg is not None:
+                    parameter_names.add(arguments.vararg.arg)
+                if arguments.kwarg is not None:
+                    parameter_names.add(arguments.kwarg.arg)
+                analyze_scope(
+                    nested.body,
+                    child_parent if scope_kind == "class" else symbols,
+                    scope_kind="function",
+                    parameters=parameter_names,
+                )
 
     analyze_scope(tree.body, {}, scope_kind="module")
     return violations
