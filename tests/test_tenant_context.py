@@ -214,7 +214,7 @@ def _literal_container_index(expression: ast.expr) -> int | None:
 
 def _resolve_container_expression(
     expression: ast.expr,
-    imported_symbols: dict[str, str | ast.expr],
+    imported_symbols: dict[str, str | ast.expr | None],
 ) -> ast.Tuple | ast.List | None:
     """Resolve only literal tuple/list containers and literal nested indexing.
 
@@ -243,7 +243,7 @@ def _resolve_container_expression(
 
 def _resolve_imported_symbol(
     expression: ast.expr,
-    imported_symbols: dict[str, str | ast.expr],
+    imported_symbols: dict[str, str | ast.expr | None],
 ) -> str | None:
     if isinstance(expression, ast.Name):
         resolved = imported_symbols.get(expression.id, expression.id)
@@ -280,7 +280,7 @@ def _resolve_imported_symbol(
 def _bind_assignment_aliases(
     target: ast.expr,
     value: ast.expr,
-    imported_symbols: dict[str, str | ast.expr],
+    imported_symbols: dict[str, str | ast.expr | None],
 ) -> bool:
     """Bind names introduced by simple, statically resolvable assignments."""
     if isinstance(value, ast.Name):
@@ -407,6 +407,22 @@ def _trusted_boundary_call_violations(
         local_names: set[str] = set()
         assignments: list[tuple[ast.expr, ast.expr]] = []
         nested_scopes: list[ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef] = []
+
+        # Function parameters are local bindings too and shadow inherited names.
+        if scope_kind == "function":
+            for statement in statements:
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    arguments = statement.args
+                    for argument in [
+                        *arguments.posonlyargs,
+                        *arguments.args,
+                        *arguments.kwonlyargs,
+                    ]:
+                        local_names.add(argument.arg)
+                    if arguments.vararg is not None:
+                        local_names.add(arguments.vararg.arg)
+                    if arguments.kwarg is not None:
+                        local_names.add(arguments.kwarg.arg)
 
         # Predeclare names bound in this lexical scope. This models Python's
         # function-local shadowing even when the assignment appears after a call.
@@ -984,6 +1000,133 @@ adapter = Adapter(authentication, memberships)
 """
     assert _production_source_boundary_violations({"cephas_logisticsos.composition": source}) == []
 
+
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_target"),
+    [
+        (
+            """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def harmless_helper():
+    TrustedTenantContextAdapter = SafeAdapter
+adapter = TrustedTenantContextAdapter(fake_auth, fake_memberships)
+""",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+def harmless_helper():
+    build_tenant_context_adapter = safe_factory
+adapter = build_tenant_context_adapter(authentication=fake_auth, memberships=fake_memberships)
+""",
+            "build_tenant_context_adapter",
+        ),
+        (
+            """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def outer():
+    def inner():
+        TrustedTenantContextAdapter = SafeAdapter
+    return TrustedTenantContextAdapter(fake_auth, fake_memberships)
+adapter = outer()
+""",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Harmless:
+    def helper(self):
+        build_tenant_context_adapter = safe_factory
+adapter = build_tenant_context_adapter(authentication=fake_auth, memberships=fake_memberships)
+""",
+            "build_tenant_context_adapter",
+        ),
+        (
+            """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def harmless_helper():
+    from safe_module import TrustedTenantContextAdapter
+adapter = TrustedTenantContextAdapter(fake_auth, fake_memberships)
+""",
+            "TrustedTenantContextAdapter",
+        ),
+    ],
+)
+def test_trusted_boundary_guard_keeps_module_bindings_separate_from_local_scopes(
+    source: str,
+    expected_target: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == expected_target for _, target in violations)
+
+
+def test_local_shadowing_does_not_create_false_positive_inside_helper() -> None:
+    source = """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def harmless_helper():
+    TrustedTenantContextAdapter = SafeAdapter
+    return TrustedTenantContextAdapter(fake_auth, fake_memberships)
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    ) == []
+
+
+def test_production_source_scan_rejects_module_calls_after_local_shadowing() -> None:
+    unauthorized_modules = {
+        "cephas_logisticsos.handlers.local_constructor_shadow": """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def harmless_helper():
+    TrustedTenantContextAdapter = SafeAdapter
+adapter = TrustedTenantContextAdapter(fake_auth, fake_memberships)
+""",
+        "cephas_logisticsos.handlers.local_factory_shadow": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+def harmless_helper():
+    build_tenant_context_adapter = safe_factory
+adapter = build_tenant_context_adapter(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.nested_local_shadow": """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def outer():
+    def inner():
+        TrustedTenantContextAdapter = SafeAdapter
+    return TrustedTenantContextAdapter(fake_auth, fake_memberships)
+""",
+        "cephas_logisticsos.handlers.class_local_shadow": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Harmless:
+    build_tenant_context_adapter = safe_factory
+adapter = build_tenant_context_adapter(authentication=fake_auth, memberships=fake_memberships)
+""",
+    }
+    violations = _production_source_boundary_violations(unauthorized_modules)
+    assert len(violations) == 4
+    assert any("TrustedTenantContextAdapter" in item for item in violations)
+    assert any("build_tenant_context_adapter" in item for item in violations)
+
+
+def test_production_source_scan_does_not_confuse_local_import_with_module_import() -> None:
+    source = """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+def harmless_helper():
+    from safe_module import TrustedTenantContextAdapter
+    return TrustedTenantContextAdapter(fake_auth, fake_memberships)
+adapter = TrustedTenantContextAdapter(fake_auth, fake_memberships)
+"""
+    violations = _production_source_boundary_violations(
+        {"cephas_logisticsos.handlers.local_import_shadow": source}
+    )
+    assert len(violations) == 1
+    assert "TrustedTenantContextAdapter" in violations[0]
 
 def test_scope_rejects_direct_construction() -> None:
     with pytest.raises(TypeError, match="cannot be constructed directly"):
