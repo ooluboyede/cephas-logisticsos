@@ -341,9 +341,8 @@ def _trusted_boundary_call_violations(
     *,
     module_name: str,
 ) -> list[tuple[int, str]]:
-    """Resolve ordinary Python import/assignment aliases for trusted constructors."""
+    """Resolve trusted constructor/factory calls without leaking aliases across scopes."""
     tree = ast.parse(source)
-    imported_symbols: dict[str, str | ast.expr] = {}
     violations: list[tuple[int, str]] = []
     package_name = module_name.rpartition(".")[0]
     constructor = "cephas_logisticsos.tenancy.trusted_context.TrustedTenantContextAdapter"
@@ -354,53 +353,129 @@ def _trusted_boundary_call_violations(
         "cephas_logisticsos.composition",
     }
 
-    for node in ast.walk(tree):
+    def direct_scope_nodes(statements: list[ast.stmt]) -> list[ast.AST]:
+        """Walk this scope but do not descend into a nested lexical scope."""
+        collected: list[ast.AST] = []
+        stack: list[ast.AST] = list(reversed(statements))
+        while stack:
+            node = stack.pop()
+            collected.append(node)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            if isinstance(node, ast.Lambda):
+                continue
+            stack.extend(reversed(list(ast.iter_child_nodes(node))))
+        return collected
+
+    def imported_name(node: ast.Import | ast.ImportFrom, alias: ast.alias) -> tuple[str, str]:
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                local_name = alias.asname or alias.name.split(".")[0]
-                imported_symbols[local_name] = alias.name if alias.asname else local_name
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:
-                package_parts = package_name.split(".") if package_name else []
-                keep = max(0, len(package_parts) - node.level + 1)
-                prefix = ".".join(package_parts[:keep])
-                if node.module:
-                    prefix = ".".join(part for part in (prefix, node.module) if part)
+            local_name = alias.asname or alias.name.split(".")[0]
+            qualified = alias.name if alias.asname else local_name
+            return local_name, qualified
+        if node.level:
+            package_parts = package_name.split(".") if package_name else []
+            keep = max(0, len(package_parts) - node.level + 1)
+            prefix = ".".join(package_parts[:keep])
+            if node.module:
+                prefix = ".".join(part for part in (prefix, node.module) if part)
+        else:
+            prefix = node.module or ""
+        local_name = alias.asname or alias.name
+        qualified = ".".join(part for part in (prefix, alias.name) if part)
+        return local_name, qualified
+
+    def target_names(target: ast.expr) -> set[str]:
+        if isinstance(target, ast.Name):
+            return {target.id}
+        if isinstance(target, (ast.Tuple, ast.List)):
+            names: set[str] = set()
+            for item in target.elts:
+                names.update(target_names(item.value if isinstance(item, ast.Starred) else item))
+            return names
+        if isinstance(target, ast.Starred):
+            return target_names(target.value)
+        return set()
+
+    def analyze_scope(
+        statements: list[ast.stmt],
+        inherited_symbols: dict[str, str | ast.expr | None],
+        *,
+        scope_kind: str,
+    ) -> None:
+        nodes = direct_scope_nodes(statements)
+        symbols = dict(inherited_symbols)
+        local_names: set[str] = set()
+        assignments: list[tuple[ast.expr, ast.expr]] = []
+        nested_scopes: list[ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef] = []
+
+        # Predeclare names bound in this lexical scope. This models Python's
+        # function-local shadowing even when the assignment appears after a call.
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                local_names.add(node.name)
+                nested_scopes.append(node)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    local_names.update(target_names(target))
+                if node.value is not None:
+                    assignments.extend((target, node.value) for target in targets)
+            elif isinstance(node, (ast.For, ast.AsyncFor)):
+                local_names.update(target_names(node.target))
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                for item in node.items:
+                    if item.optional_vars is not None:
+                        local_names.update(target_names(item.optional_vars))
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                local_names.add(node.name)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    local_name, _ = imported_name(node, alias)
+                    local_names.add(local_name)
+
+        for name in local_names:
+            symbols[name] = None
+
+        # Imports are resolved only in this scope; a local import never rewrites
+        # a binding in the enclosing module or function.
+        for node in nodes:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    local_name, qualified = imported_name(node, alias)
+                    if alias.name == "*" and isinstance(node, ast.ImportFrom):
+                        if qualified.rpartition(".")[0] in trusted_modules:
+                            violations.append((node.lineno, f"star-import:{qualified}"))
+                        continue
+                    symbols[local_name] = qualified
+
+        # Resolve aliases to a fixed point, but only in this scope's private map.
+        for _ in range(len(local_names) + 1):
+            changed = False
+            for target, value in assignments:
+                changed = _bind_assignment_aliases(target, value, symbols) or changed
+            if not changed:
+                break
+
+        # Calls in this scope are evaluated against this scope's own map.
+        for node in nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            resolved = _resolve_imported_symbol(node.func, symbols)
+            if resolved == constructor:
+                violations.append((node.lineno, "TrustedTenantContextAdapter"))
+            elif resolved == factory:
+                violations.append((node.lineno, "build_tenant_context_adapter"))
+
+        # A method defined in a class does not close over the class namespace.
+        # Function scopes do inherit enclosing function/module bindings.
+        child_parent = inherited_symbols if scope_kind == "class" else symbols
+        for nested in nested_scopes:
+            if isinstance(nested, ast.ClassDef):
+                analyze_scope(nested.body, symbols, scope_kind="class")
             else:
-                prefix = node.module or ""
-            if any(alias.name == "*" for alias in node.names):
-                if prefix in trusted_modules:
-                    violations.append((node.lineno, f"star-import:{prefix}"))
-                continue
-            for alias in node.names:
-                local_name = alias.asname or alias.name
-                imported_symbols[local_name] = ".".join(
-                    part for part in (prefix, alias.name) if part
-                )
+                analyze_scope(nested.body, child_parent if scope_kind == "class" else symbols, scope_kind="function")
 
-    # Resolve simple assignment aliases such as AdapterAlias = Adapter.
-    for _ in range(len(imported_symbols) + 1):
-        changed = False
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-                continue
-            value = node.value
-            if value is None:
-                continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for target in targets:
-                changed = _bind_assignment_aliases(target, value, imported_symbols) or changed
-        if not changed:
-            break
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        resolved = _resolve_imported_symbol(node.func, imported_symbols)
-        if resolved == constructor:
-            violations.append((node.lineno, "TrustedTenantContextAdapter"))
-        elif resolved == factory:
-            violations.append((node.lineno, "build_tenant_context_adapter"))
+    analyze_scope(tree.body, {}, scope_kind="module")
     return violations
 
 
