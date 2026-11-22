@@ -810,7 +810,6 @@ def test_production_source_scan_rejects_remaining_container_indices_and_else_bra
     assert len(violations) == 3
 
 
-
 @pytest.mark.parametrize(
     ("source", "expected_target"),
     [
@@ -899,9 +898,7 @@ def test_production_source_scan_preserves_exact_composition_root_exception() -> 
         "Adapter = containers[0][-1]\\n"
         "adapter = Adapter(authentication, memberships)"
     )
-    assert _production_source_boundary_violations(
-        {"cephas_logisticsos.composition": source}
-    ) == []
+    assert _production_source_boundary_violations({"cephas_logisticsos.composition": source}) == []
 
 
 def test_scope_rejects_direct_construction() -> None:
