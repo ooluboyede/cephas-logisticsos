@@ -206,7 +206,38 @@ def _resolve_imported_symbol(
     if isinstance(expression, ast.Attribute):
         parent = _resolve_imported_symbol(expression.value, imported_symbols)
         return f"{parent}.{expression.attr}" if parent else None
+    if isinstance(expression, ast.Subscript) and isinstance(expression.slice, ast.Constant):
+        index = expression.slice.value
+        if isinstance(index, int) and not isinstance(index, bool):
+            if isinstance(expression.value, (ast.Tuple, ast.List)):
+                elements = expression.value.elts
+                if -len(elements) <= index < len(elements):
+                    return _resolve_imported_symbol(elements[index], imported_symbols)
     return None
+
+
+def _bind_assignment_aliases(
+    target: ast.expr,
+    value: ast.expr,
+    imported_symbols: dict[str, str],
+) -> bool:
+    """Bind names introduced by simple, statically resolvable assignments."""
+    if isinstance(target, ast.Name):
+        resolved = _resolve_imported_symbol(value, imported_symbols)
+        if resolved is None or imported_symbols.get(target.id) == resolved:
+            return False
+        imported_symbols[target.id] = resolved
+        return True
+    if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
+        if len(target.elts) != len(value.elts):
+            return False
+        changed = False
+        for target_item, value_item in zip(target.elts, value.elts):
+            changed = _bind_assignment_aliases(
+                target_item, value_item, imported_symbols
+            ) or changed
+        return changed
+    return False
 
 
 def _trusted_boundary_call_violations(
@@ -260,14 +291,9 @@ def _trusted_boundary_call_violations(
             value = node.value
             if value is None:
                 continue
-            resolved = _resolve_imported_symbol(value, imported_symbols)
-            if not resolved:
-                continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
-                if isinstance(target, ast.Name) and imported_symbols.get(target.id) != resolved:
-                    imported_symbols[target.id] = resolved
-                    changed = True
+                changed = _bind_assignment_aliases(target, value, imported_symbols) or changed
         if not changed:
             break
 
@@ -390,18 +416,85 @@ def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() ->
     )
 
 
-def test_adapter_construction_and_factory_calls_are_confined_to_composition_root() -> None:
-    source_root = Path(__file__).parents[1] / "src"
+def _production_source_boundary_violations(
+    source_by_module: dict[str, str],
+) -> list[str]:
+    """Apply the production-source composition rule to module source text."""
     violations: list[str] = []
-    for path in source_root.rglob("*.py"):
-        module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
+    for module_name, source in source_by_module.items():
         for line, target in _trusted_boundary_call_violations(
-            path.read_text(encoding="utf-8"),
+            source,
             module_name=module_name,
         ):
             if module_name != "cephas_logisticsos.composition":
-                violations.append(f"{path}:{line}:{target}")
-    assert violations == []
+                violations.append(f"{module_name}:{line}:{target}")
+    return violations
+
+
+def test_adapter_construction_and_factory_calls_are_confined_to_composition_root() -> None:
+    source_root = Path(__file__).parents[1] / "src"
+    source_by_module: dict[str, str] = {}
+    for path in source_root.rglob("*.py"):
+        module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
+        source_by_module[module_name] = path.read_text(encoding="utf-8")
+    assert _production_source_boundary_violations(source_by_module) == []
+
+
+def test_production_source_scan_rejects_tuple_unpacked_factory_and_constructor_aliases() -> None:
+    unauthorized_module = """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+factory, = (build_tenant_context_adapter,)
+adapter = factory(authentication=fake_auth, memberships=fake_memberships)
+
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+Adapter, = [TrustedTenantContextAdapter]
+forbidden = Adapter(fake_auth, fake_memberships)
+"""
+    violations = _production_source_boundary_violations(
+        {"cephas_logisticsos.handlers.request_handler": unauthorized_module}
+    )
+    assert any("build_tenant_context_adapter" in item for item in violations)
+    assert any("TrustedTenantContextAdapter" in item for item in violations)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_target"),
+    [
+        (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "factory, = (build_tenant_context_adapter,)\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "Adapter, = [TrustedTenantContextAdapter]\\n"
+            "Adapter(fake_auth, fake_memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "factory = (build_tenant_context_adapter,)[0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "Adapter = [TrustedTenantContextAdapter][0]\\n"
+            "Adapter(fake_auth, fake_memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+    ],
+)
+def test_trusted_boundary_guard_resolves_destructuring_and_literal_index_aliases(
+    source: str,
+    expected_target: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == expected_target for _, target in violations)
 
 
 def test_scope_rejects_direct_construction() -> None:
