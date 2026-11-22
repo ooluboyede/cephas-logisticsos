@@ -232,7 +232,7 @@ def _bind_assignment_aliases(
         if len(target.elts) != len(value.elts):
             return False
         changed = False
-        for target_item, value_item in zip(target.elts, value.elts):
+        for target_item, value_item in zip(target.elts, value.elts, strict=True):
             changed = _bind_assignment_aliases(
                 target_item, value_item, imported_symbols
             ) or changed
