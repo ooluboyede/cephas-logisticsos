@@ -722,6 +722,66 @@ def test_production_source_scan_rejects_conditional_and_container_name_aliases()
     assert any("TrustedTenantContextAdapter" in item for item in violations)
 
 
+@pytest.mark.parametrize(
+    ("source", "expected_target"),
+    [
+        (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "items = [build_tenant_context_adapter]\\n"
+            "factory = items[0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)",
+            "build_tenant_context_adapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "constructors = (TrustedTenantContextAdapter,)\\n"
+            "Adapter = constructors[-1]\\n"
+            "Adapter(fake_auth, fake_memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+        (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "constructor = SafeAdapter if condition else TrustedTenantContextAdapter\\n"
+            "constructor(fake_auth, fake_memberships)",
+            "TrustedTenantContextAdapter",
+        ),
+    ],
+)
+def test_trusted_boundary_guard_resolves_remaining_container_indices_and_else_branch(
+    source: str,
+    expected_target: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == expected_target for _, target in violations)
+
+
+def test_production_source_scan_rejects_remaining_container_indices_and_else_branch() -> None:
+    unauthorized_modules = {
+        "cephas_logisticsos.handlers.indexed_factory_positive": (
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
+            "items = [build_tenant_context_adapter]\\n"
+            "factory = items[0]\\n"
+            "factory(authentication=fake_auth, memberships=fake_memberships)"
+        ),
+        "cephas_logisticsos.handlers.indexed_constructor_negative": (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "constructors = (TrustedTenantContextAdapter,)\\n"
+            "Adapter = constructors[-1]\\n"
+            "Adapter(fake_auth, fake_memberships)"
+        ),
+        "cephas_logisticsos.handlers.conditional_constructor_else": (
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
+            "constructor = SafeAdapter if condition else TrustedTenantContextAdapter\\n"
+            "constructor(fake_auth, fake_memberships)"
+        ),
+    }
+    violations = _production_source_boundary_violations(unauthorized_modules)
+    assert len(violations) == 3
+
+
 def test_scope_rejects_direct_construction() -> None:
     with pytest.raises(TypeError, match="cannot be constructed directly"):
         TenantScope(
