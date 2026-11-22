@@ -653,28 +653,28 @@ def test_production_source_scan_rejects_negative_starred_and_nested_aliases() ->
     ("source", "expected_target"),
     [
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory = build_tenant_context_adapter if condition else safe_factory\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory = build_tenant_context_adapter if condition else safe_factory\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "constructor = TrustedTenantContextAdapter if condition else SafeAdapter\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "constructor = TrustedTenantContextAdapter if condition else SafeAdapter\n"
             "constructor(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "items = (build_tenant_context_adapter,)\\n"
-            "factory = items[-1]\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "items = (build_tenant_context_adapter,)\n"
+            "factory = items[-1]\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "constructors = [TrustedTenantContextAdapter]\\n"
-            "Adapter = constructors[0]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "constructors = [TrustedTenantContextAdapter]\n"
+            "Adapter = constructors[0]\n"
             "Adapter(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
@@ -694,25 +694,25 @@ def test_trusted_boundary_guard_resolves_conditional_and_container_name_aliases(
 def test_production_source_scan_rejects_conditional_and_container_name_aliases() -> None:
     unauthorized_modules = {
         "cephas_logisticsos.handlers.conditional_factory": (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory = build_tenant_context_adapter if condition else safe_factory\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory = build_tenant_context_adapter if condition else safe_factory\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)"
         ),
         "cephas_logisticsos.handlers.conditional_constructor": (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "constructor = TrustedTenantContextAdapter if condition else SafeAdapter\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "constructor = TrustedTenantContextAdapter if condition else SafeAdapter\n"
             "constructor(fake_auth, fake_memberships)"
         ),
         "cephas_logisticsos.handlers.indexed_factory": (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "items = (build_tenant_context_adapter,)\\n"
-            "factory = items[-1]\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "items = (build_tenant_context_adapter,)\n"
+            "factory = items[-1]\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)"
         ),
         "cephas_logisticsos.handlers.indexed_constructor": (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "constructors = [TrustedTenantContextAdapter]\\n"
-            "Adapter = constructors[0]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "constructors = [TrustedTenantContextAdapter]\n"
+            "Adapter = constructors[0]\n"
             "Adapter(fake_auth, fake_memberships)"
         ),
     }
