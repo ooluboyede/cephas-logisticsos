@@ -1008,8 +1008,6 @@ adapter = Adapter(authentication, memberships)
     assert _production_source_boundary_violations({"cephas_logisticsos.composition": source}) == []
 
 
-
-
 @pytest.mark.parametrize(
     ("source", "expected_target"),
     [
@@ -1081,10 +1079,13 @@ def harmless_helper():
     TrustedTenantContextAdapter = SafeAdapter
     return TrustedTenantContextAdapter(fake_auth, fake_memberships)
 """
-    assert _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
 
 
 def test_production_source_scan_rejects_module_calls_after_local_shadowing() -> None:
