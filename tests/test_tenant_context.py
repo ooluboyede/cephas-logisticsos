@@ -1306,10 +1306,13 @@ def handler(adapter=SafeAdapter()):
 class Handler(SafeBase):
     pass
 """
-    assert _trusted_boundary_call_violations(
-        safe_source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            safe_source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
 
     composition_source = """
 from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
@@ -1317,6 +1320,9 @@ from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapt
 def handler():
     pass
 """
-    assert _production_source_boundary_violations(
-        {"cephas_logisticsos.composition": composition_source}
-    ) == []
+    assert (
+        _production_source_boundary_violations(
+            {"cephas_logisticsos.composition": composition_source}
+        )
+        == []
+    )
