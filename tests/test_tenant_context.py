@@ -461,26 +461,26 @@ forbidden = Adapter(fake_auth, fake_memberships)
     ("source", "expected_target"),
     [
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory, = (build_tenant_context_adapter,)\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory, = (build_tenant_context_adapter,)\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "Adapter, = [TrustedTenantContextAdapter]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "Adapter, = [TrustedTenantContextAdapter]\n"
             "Adapter(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory = (build_tenant_context_adapter,)[0]\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory = (build_tenant_context_adapter,)[0]\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "Adapter = [TrustedTenantContextAdapter][0]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "Adapter = [TrustedTenantContextAdapter][0]\n"
             "Adapter(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
