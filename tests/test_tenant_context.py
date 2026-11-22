@@ -199,10 +199,13 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
 
 def _resolve_imported_symbol(
     expression: ast.expr,
-    imported_symbols: dict[str, str],
+    imported_symbols: dict[str, str | ast.expr],
 ) -> str | None:
     if isinstance(expression, ast.Name):
-        return imported_symbols.get(expression.id, expression.id)
+        resolved = imported_symbols.get(expression.id, expression.id)
+        if isinstance(resolved, ast.expr):
+            return _resolve_imported_symbol(resolved, imported_symbols)
+        return resolved
     if isinstance(expression, ast.Attribute):
         parent = _resolve_imported_symbol(expression.value, imported_symbols)
         return f"{parent}.{expression.attr}" if parent else None
@@ -230,15 +233,26 @@ def _resolve_imported_symbol(
 def _bind_assignment_aliases(
     target: ast.expr,
     value: ast.expr,
-    imported_symbols: dict[str, str],
+    imported_symbols: dict[str, str | ast.expr],
 ) -> bool:
     """Bind names introduced by simple, statically resolvable assignments."""
+    if isinstance(value, ast.Name):
+        mapped_value = imported_symbols.get(value.id)
+        if isinstance(mapped_value, ast.expr):
+            value = mapped_value
     if isinstance(target, ast.Name):
         resolved = _resolve_imported_symbol(value, imported_symbols)
-        if resolved is None or imported_symbols.get(target.id) == resolved:
-            return False
-        imported_symbols[target.id] = resolved
-        return True
+        if resolved is not None:
+            if imported_symbols.get(target.id) == resolved:
+                return False
+            imported_symbols[target.id] = resolved
+            return True
+        if isinstance(value, (ast.Tuple, ast.List)):
+            if imported_symbols.get(target.id) is value:
+                return False
+            imported_symbols[target.id] = value
+            return True
+        return False
     if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
         starred = [
             index for index, item in enumerate(target.elts) if isinstance(item, ast.Starred)
@@ -283,7 +297,7 @@ def _trusted_boundary_call_violations(
 ) -> list[tuple[int, str]]:
     """Resolve ordinary Python import/assignment aliases for trusted constructors."""
     tree = ast.parse(source)
-    imported_symbols: dict[str, str] = {}
+    imported_symbols: dict[str, str | ast.expr] = {}
     violations: list[tuple[int, str]] = []
     package_name = module_name.rpartition(".")[0]
     constructor = "cephas_logisticsos.tenancy.trusted_context.TrustedTenantContextAdapter"
