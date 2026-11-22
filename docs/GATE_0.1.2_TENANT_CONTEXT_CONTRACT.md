@@ -60,6 +60,14 @@ This is a Python application architecture guard, not a security sandbox. Code wi
 - CI architecture tests restricting production source imports of the private evidence module and restricting trusted-adapter construction and composition-factory calls to the designated composition root, including ordinary aliases.
 - Regression tests for successful adapter flow, untrusted public carriers, unauthenticated principal, inactive/missing membership, mismatched subject, wrong returned tenant, wrong returned business unit, package and relative import bypasses, aliased constructor and factory-call bypasses, composition-root construction boundary, identifier validation and immutability.
 
+## Definition-time expression scanning
+
+The source-level trusted-boundary resolver scans function and class definition-time expressions in the enclosing lexical scope, while analyzing function and class bodies in their own scope. Covered expressions include function decorators, positional and keyword defaults, argument and return annotations, class decorators, base expressions and class keyword values. Generic type-parameter nodes are traversed where exposed by the running Python AST.
+
+Regression coverage includes trusted constructor calls in function defaults and class bases, trusted factory calls in decorators, production-source scanner equivalents, safe-expression negative controls, and preservation of the designated composition-root exception.
+
+This remains a bounded AST source guard, not a compiler-equivalent Python scope analyzer. Unsupported or dynamically resolved constructs must not be interpreted as proof of safety; the accepted grammar and limitations must be reviewed alongside the tests.
+
 ## Explicitly not implemented
 
 - Production authentication provider or identity-provider integration.
