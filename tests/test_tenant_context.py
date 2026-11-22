@@ -254,9 +254,7 @@ def _bind_assignment_aliases(
             return True
         return False
     if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
-        starred = [
-            index for index, item in enumerate(target.elts) if isinstance(item, ast.Starred)
-        ]
+        starred = [index for index, item in enumerate(target.elts) if isinstance(item, ast.Starred)]
         if len(starred) > 1:
             return False
         if not starred:
@@ -551,40 +549,40 @@ def test_trusted_boundary_guard_resolves_destructuring_and_literal_index_aliases
     ("source", "expected_target"),
     [
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory = (build_tenant_context_adapter,)[-1]\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory = (build_tenant_context_adapter,)[-1]\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "Adapter = [TrustedTenantContextAdapter][-1]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "Adapter = [TrustedTenantContextAdapter][-1]\n"
             "Adapter(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory, *remaining = (build_tenant_context_adapter,)\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory, *remaining = (build_tenant_context_adapter,)\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "Adapter, *remaining = [TrustedTenantContextAdapter]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "Adapter, *remaining = [TrustedTenantContextAdapter]\n"
             "Adapter(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
         (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "nested, = ((build_tenant_context_adapter,),)\\n"
-            "factory, = nested\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "nested, = ((build_tenant_context_adapter,),)\n"
+            "factory, = nested\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)",
             "build_tenant_context_adapter",
         ),
         (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "nested, = ([TrustedTenantContextAdapter],)\\n"
-            "Adapter, = nested\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "nested, = ([TrustedTenantContextAdapter],)\n"
+            "Adapter, = nested\n"
             "Adapter(fake_auth, fake_memberships)",
             "TrustedTenantContextAdapter",
         ),
@@ -604,25 +602,25 @@ def test_trusted_boundary_guard_resolves_negative_starred_and_nested_aliases(
 def test_production_source_scan_rejects_negative_starred_and_nested_aliases() -> None:
     unauthorized_modules = {
         "cephas_logisticsos.handlers.negative_factory": (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "factory = (build_tenant_context_adapter,)[-1]\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "factory = (build_tenant_context_adapter,)[-1]\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)"
         ),
         "cephas_logisticsos.handlers.starred_constructor": (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "Adapter, *remaining = [TrustedTenantContextAdapter]\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "Adapter, *remaining = [TrustedTenantContextAdapter]\n"
             "Adapter(fake_auth, fake_memberships)"
         ),
         "cephas_logisticsos.handlers.nested_factory": (
-            "from cephas_logisticsos.composition import build_tenant_context_adapter\\n"
-            "nested, = ((build_tenant_context_adapter,),)\\n"
-            "factory, = nested\\n"
+            "from cephas_logisticsos.composition import build_tenant_context_adapter\n"
+            "nested, = ((build_tenant_context_adapter,),)\n"
+            "factory, = nested\n"
             "factory(authentication=fake_auth, memberships=fake_memberships)"
         ),
         "cephas_logisticsos.handlers.nested_constructor": (
-            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\\n"
-            "nested, = ([TrustedTenantContextAdapter],)\\n"
-            "Adapter, = nested\\n"
+            "from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter\n"
+            "nested, = ([TrustedTenantContextAdapter],)\n"
+            "Adapter, = nested\n"
             "Adapter(fake_auth, fake_memberships)"
         ),
     }
