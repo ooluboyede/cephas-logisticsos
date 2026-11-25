@@ -614,10 +614,7 @@ def _trusted_boundary_call_violations(
                     join_storage(target_name, value.id)
             elif isinstance(value, (ast.Attribute, ast.Subscript)):
                 source_root = _storage_root_name(value)
-                if (
-                    source_root is not None
-                    and _resolve_imported_symbol(value, symbols) is None
-                ):
+                if source_root is not None and _resolve_imported_symbol(value, symbols) is None:
                     join_storage(target_name, source_root)
 
         def taint_storage(name: str) -> None:
