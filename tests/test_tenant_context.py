@@ -582,6 +582,113 @@ def _trusted_boundary_call_violations(
             if not changed:
                 break
 
+        # Track object aliases independently from trusted-symbol aliases.  This is
+        # deliberately a bounded, scope-local may-alias model: direct name aliases
+        # share a storage identity, and any trusted write taints every known alias.
+        storage_parent = {name: name for name in local_names}
+
+        def storage_root(name: str) -> str:
+            parent = storage_parent.setdefault(name, name)
+            if parent != name:
+                storage_parent[name] = storage_root(parent)
+            return storage_parent[name]
+
+        def join_storage(left: str, right: str) -> None:
+            left_root = storage_root(left)
+            right_root = storage_root(right)
+            if left_root != right_root:
+                storage_parent[right_root] = left_root
+
+        # Only the final statically visible binding determines a name's
+        # current storage identity. This avoids permanently merging an alias
+        # with an object after that name has been reassigned.
+        final_name_bindings: dict[str, ast.expr] = {}
+        for target, value in assignments:
+            if isinstance(target, ast.Name):
+                final_name_bindings[target.id] = value
+        for target_name, value in final_name_bindings.items():
+            if isinstance(value, ast.Name):
+                # A name resolving to a trusted callable is a callable alias,
+                # not an alias to the registry/object that stores callables.
+                if _resolve_imported_symbol(value, symbols) is None:
+                    join_storage(target_name, value.id)
+            elif isinstance(value, (ast.Attribute, ast.Subscript)):
+                source_root = _storage_root_name(value)
+                if source_root is not None and _resolve_imported_symbol(value, symbols) is None:
+                    join_storage(target_name, source_root)
+
+        def taint_storage(name: str) -> None:
+            root = storage_root(name)
+            for alias_name in tuple(storage_parent):
+                if storage_root(alias_name) == root:
+                    symbols[alias_name] = _INDETERMINATE_TRUSTED_ALIAS
+
+        # Attribute/subscript writes taint the shared object, not just the
+        # variable spelling used at the write site. Unsupported roots fail closed.
+        for target, value in assignments:
+            if not isinstance(target, (ast.Attribute, ast.Subscript)):
+                continue
+            if not _contains_trusted_boundary_reference(value, symbols):
+                continue
+            root_name = _storage_root_name(target)
+            if root_name is None:
+                violations.append((target.lineno, "indeterminate-trusted-storage-write"))
+            else:
+                taint_storage(root_name)
+
+        # Recognise common mutating APIs when their arguments carry a trusted
+        # reference. Unknown method calls are not assumed to mutate safely; if a
+        # trusted value is passed to a method on an unresolved receiver, fail closed.
+        mutating_methods = {"update", "append", "extend", "__setitem__", "setdefault"}
+        for call in (node for node in nodes if isinstance(node, ast.Call)):
+            trusted_arguments = any(
+                _contains_trusted_boundary_reference(argument, symbols)
+                for argument in [*call.args, *(keyword.value for keyword in call.keywords)]
+            )
+            if not trusted_arguments:
+                continue
+            if isinstance(call.func, ast.Attribute) and call.func.attr in mutating_methods:
+                receiver_root = _storage_root_name(call.func.value)
+                if receiver_root is None:
+                    violations.append((call.lineno, "indeterminate-trusted-storage-mutation"))
+                else:
+                    taint_storage(receiver_root)
+            elif (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "setattr"
+                and len(call.args) >= 3
+            ):
+                receiver_root = _storage_root_name(call.args[0])
+                if receiver_root is None:
+                    violations.append((call.lineno, "indeterminate-trusted-storage-mutation"))
+                else:
+                    taint_storage(receiver_root)
+
+        # Revisit name assignments after storage taint is known. A callable
+        # retrieved through an alias to a mutated registry must itself become
+        # indeterminate before call sites are classified.
+        for _ in range(len(local_names) + 1):
+            changed = False
+            for target, value in assignments:
+                if not isinstance(target, ast.Name):
+                    continue
+                source_root = (
+                    value.id
+                    if isinstance(value, ast.Name)
+                    else _storage_root_name(value)
+                    if isinstance(value, (ast.Attribute, ast.Subscript))
+                    else None
+                )
+                if (
+                    source_root is not None
+                    and symbols.get(source_root) == _INDETERMINATE_TRUSTED_ALIAS
+                    and symbols.get(target.id) != _INDETERMINATE_TRUSTED_ALIAS
+                ):
+                    symbols[target.id] = _INDETERMINATE_TRUSTED_ALIAS
+                    changed = True
+            if not changed:
+                break
+
         # Calls in this scope are evaluated against this scope's own map.
         for node in nodes:
             if not isinstance(node, ast.Call):
@@ -1550,6 +1657,143 @@ constructor(fake_auth, fake_memberships)
     violations = _production_source_boundary_violations(sources)
     assert len(violations) == 3
     assert all("indeterminate-trusted-boundary-call" in item for item in violations)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # Alias exists before the trusted write: both names must become tainted.
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+alias = registry
+registry[\"factory\"] = build_tenant_context_adapter
+factory = alias[selected_name]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+registry.factory = build_tenant_context_adapter
+factory = alias.factory
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        # Nested aliases conservatively share the tracked root identity.
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+outer = Registry()
+inner = outer
+inner.child = Registry()
+child = outer.child
+child.factory = build_tenant_context_adapter
+factory = child.factory
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        # Common mutator methods and setattr must taint pre-existing aliases.
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+alias = registry
+registry.update({\"factory\": build_tenant_context_adapter})
+factory = alias[selected_name]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = []
+alias = registry
+registry.append(build_tenant_context_adapter)
+factory = alias[selected_index]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = []
+alias = registry
+registry.extend([build_tenant_context_adapter])
+factory = alias[selected_index]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+setattr(registry, selected_name, build_tenant_context_adapter)
+factory = alias.factory
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        # Unsupported storage roots are explicitly indeterminate.
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+get_registry().factory = build_tenant_context_adapter
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+get_registry().update({\"factory\": build_tenant_context_adapter})
+""",
+    ],
+)
+def test_r20_alias_aware_storage_and_mutator_flows_fail_closed(source: str) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert violations
+    assert any(
+        "indeterminate" in target
+        or target in {"build_tenant_context_adapter", "TrustedTenantContextAdapter"}
+        for _, target in violations
+    )
+
+
+def test_r20_storage_alias_reassignment_and_unrelated_objects_remain_separate() -> None:
+    safe_source = """
+from safe_module import safe_factory
+first = {}
+second = {}
+alias = first
+alias = second
+second.update({\"factory\": safe_factory})
+factory = first.get if hasattr(first, \"get\") else safe_factory
+factory()
+"""
+    assert (
+        _trusted_boundary_call_violations(
+            safe_source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
+
+
+def test_r20_production_scanner_rejects_alias_and_mutator_storage_patterns() -> None:
+    sources = {
+        "cephas_logisticsos.handlers.alias_update": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+alias = registry
+registry.update({\"factory\": build_tenant_context_adapter})
+alias[selected_name](authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.alias_setattr": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+setattr(registry, selected_name, build_tenant_context_adapter)
+alias.factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.dynamic_root": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+get_registry().factory = build_tenant_context_adapter
+""",
+    }
+    violations = _production_source_boundary_violations(sources)
+    assert len(violations) >= 3
 
 
 def test_attribute_and_container_taint_preserves_unrelated_safe_storage() -> None:
