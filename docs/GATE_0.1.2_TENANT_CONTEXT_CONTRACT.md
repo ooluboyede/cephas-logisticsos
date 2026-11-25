@@ -98,3 +98,22 @@ These remain mandatory later-gate controls. This contract does not claim product
 - Negative, boundary, wrong-type and immutability tests pass.
 - Ruff lint and formatting, Mypy strict, full test suite and configured coverage pass on the exact submitted commit.
 - Independent reassessment accepts the exact commit.
+
+
+## R-21 — standard-library storage mutation and retrieval remediation
+
+R-21 extends the bounded source guard to cover standard-library operations that move trusted references into and out of tainted storage.
+
+Supported mutation coverage includes:
+- operator.setitem(container, key, value), including module aliases and imported-symbol aliases, with the first argument treated as the mutated storage receiver.
+- Existing targeted method mutators and builtin setattr().
+
+Supported retrieval coverage includes:
+- operator.getitem(container, key), including module aliases and imported-symbol aliases.
+- builtin getattr(receiver, name), including literal and dynamic attribute names.
+- Propagation from a tainted receiver to a name assigned from the retrieval result.
+- Rejection when a retrieval expression is invoked directly as the callable.
+
+Dynamic keys and attribute names do not reduce the taint of an already-tainted receiver. The production-source scanner must include complete mutation → retrieval → invocation fixtures and safe negative controls for unrelated storage and safe factories.
+
+This remains a deliberately bounded static analysis. It does not claim to model arbitrary user-defined functions, all Python standard-library APIs, general heap identity, or runtime reflection without a statically visible trusted reference. Exact-head CI and independent reassessment are required; R-21 implementation or green CI alone does not constitute Gate 0.1.2 acceptance.
