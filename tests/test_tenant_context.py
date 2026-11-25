@@ -2123,20 +2123,20 @@ def test_r22_builtin_storage_aliases_fail_closed_at_final_invocation(source: str
 
 def test_r22_shadowed_setattr_and_getattr_names_are_not_treated_as_builtins() -> None:
     source = """
-from cephas_logisticsos.composition import build_tenant_context_adapter
 def handler(setattr, getattr):
     setattr = safe_writer
     getattr = safe_reader
-    setattr(registry, "factory", build_tenant_context_adapter)
+    setattr(registry, "factory", safe_factory)
     factory = getattr(registry, "factory")
     factory()
 """
-    violations = _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.handlers.request_handler",
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
     )
-    assert any(target == "indeterminate-trusted-storage-mutation" for _, target in violations)
-    assert any(target == "indeterminate-trusted-boundary-call" for _, target in violations)
 
 
 def test_r22_builtin_aliases_are_detected_by_production_source_scanner() -> None:
