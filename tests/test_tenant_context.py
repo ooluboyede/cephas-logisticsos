@@ -1614,7 +1614,7 @@ def test_trusted_boundary_storage_replacement_remains_fail_closed(source: str) -
         source,
         module_name="cephas_logisticsos.handlers.request_handler",
     )
-    assert (len(source.splitlines()), "indeterminate-trusted-boundary-call") in violations
+    assert (len(source.splitlines()) - 1, "indeterminate-trusted-boundary-call") in violations
 
 
 def test_trusted_boundary_scanner_respects_parameter_shadowing() -> None:
