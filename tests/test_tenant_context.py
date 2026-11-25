@@ -1624,7 +1624,10 @@ def handler(setattr, getattr, safe_factory):
     factory = reader(object(), "factory")
     factory()
 """
-    assert _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
