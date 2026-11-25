@@ -1587,6 +1587,7 @@ factory()
     "source",
     [
         """
+from cephas_logisticsos.composition import build_tenant_context_adapter
 registry = {}
 registry["factory"] = build_tenant_context_adapter
 registry["factory"] = safe_factory
@@ -1594,6 +1595,7 @@ factory = registry["factory"]
 factory()
 """,
         """
+from cephas_logisticsos.composition import build_tenant_context_adapter
 registry = [safe_factory]
 registry[0] = build_tenant_context_adapter
 factory = registry[0]
