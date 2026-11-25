@@ -2,6 +2,7 @@
 
 import argparse
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 _INDETERMINATE_TRUSTED_ALIAS = "__cephas_indeterminate_trusted_boundary_alias__"
@@ -15,6 +16,8 @@ def _literal_container_index(expression: ast.expr) -> int | None:
         isinstance(expression, ast.UnaryOp)
         and isinstance(expression.op, ast.USub)
         and isinstance(expression.operand, ast.Constant)
+        and isinstance(expression.operand.value, int)
+        and not isinstance(expression.operand.value, bool)
     ):
         index = -expression.operand.value
     else:
@@ -205,30 +208,32 @@ def _bind_assignment_aliases(
         starred = [index for index, item in enumerate(target.elts) if isinstance(item, ast.Starred)]
         if len(starred) > 1:
             return False
+        pairs: Iterable[tuple[ast.expr, ast.expr]]
         if not starred:
             if len(target.elts) != len(value.elts):
                 return False
             pairs = zip(target.elts, value.elts, strict=True)
         else:
             star_index = starred[0]
+            star_target = target.elts[star_index]
+            if not isinstance(star_target, ast.Starred):
+                return False
             suffix_count = len(target.elts) - star_index - 1
             if len(value.elts) < star_index + suffix_count:
                 return False
             middle_end = len(value.elts) - suffix_count
-            pairs = iter(
-                [
-                    *zip(target.elts[:star_index], value.elts[:star_index], strict=True),
-                    (
-                        target.elts[star_index].value,
-                        ast.List(elts=value.elts[star_index:middle_end], ctx=ast.Load()),
-                    ),
-                    *zip(
-                        target.elts[star_index + 1 :],
-                        value.elts[middle_end:],
-                        strict=True,
-                    ),
-                ]
-            )
+            pairs = [
+                *zip(target.elts[:star_index], value.elts[:star_index], strict=True),
+                (
+                    star_target.value,
+                    ast.List(elts=value.elts[star_index:middle_end], ctx=ast.Load()),
+                ),
+                *zip(
+                    target.elts[star_index + 1 :],
+                    value.elts[middle_end:],
+                    strict=True,
+                ),
+            ]
         changed = False
         for target_item, value_item in pairs:
             changed = _bind_assignment_aliases(target_item, value_item, imported_symbols) or changed
@@ -566,19 +571,19 @@ def _trusted_boundary_call_violations(
             if isinstance(nested, ast.ClassDef):
                 analyze_scope(nested.body, symbols, scope_kind="class")
             else:
-                arguments = nested.args
+                nested_arguments = nested.args
                 parameter_names = {
                     argument.arg
                     for argument in [
-                        *arguments.posonlyargs,
-                        *arguments.args,
-                        *arguments.kwonlyargs,
+                        *nested_arguments.posonlyargs,
+                        *nested_arguments.args,
+                        *nested_arguments.kwonlyargs,
                     ]
                 }
-                if arguments.vararg is not None:
-                    parameter_names.add(arguments.vararg.arg)
-                if arguments.kwarg is not None:
-                    parameter_names.add(arguments.kwarg.arg)
+                if nested_arguments.vararg is not None:
+                    parameter_names.add(nested_arguments.vararg.arg)
+                if nested_arguments.kwarg is not None:
+                    parameter_names.add(nested_arguments.kwarg.arg)
                 analyze_scope(
                     nested.body,
                     child_parent if scope_kind == "class" else symbols,
