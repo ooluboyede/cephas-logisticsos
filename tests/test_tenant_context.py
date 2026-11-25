@@ -313,11 +313,7 @@ def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() ->
 
 def test_adapter_construction_and_factory_calls_are_confined_to_composition_root() -> None:
     source_root = Path(__file__).parents[1] / "src"
-    source_by_module: dict[str, str] = {}
-    for path in source_root.rglob("*.py"):
-        module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
-        source_by_module[module_name] = path.read_text(encoding="utf-8")
-    assert _production_source_boundary_violations(source_by_module) == []
+    assert scan_source_tree(source_root) == []
 
 
 def test_production_source_scan_rejects_tuple_unpacked_factory_and_constructor_aliases() -> None:
@@ -1586,3 +1582,51 @@ factory()
         )
         == []
     )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+registry = {}
+registry["factory"] = build_tenant_context_adapter
+registry["factory"] = safe_factory
+factory = registry["factory"]
+factory()
+""",
+        """
+registry = [safe_factory]
+registry[0] = build_tenant_context_adapter
+factory = registry[0]
+factory()
+""",
+        """
+registry = {}
+registry["factory"] = safe_factory
+registry["factory"] = build_tenant_context_adapter
+factory = registry["factory"]
+factory()
+""",
+    ],
+)
+def test_trusted_boundary_storage_replacement_remains_fail_closed(source: str) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert (len(source.splitlines()), "indeterminate-trusted-boundary-call") in violations
+
+
+def test_trusted_boundary_scanner_respects_parameter_shadowing() -> None:
+    source = """
+def handler(setattr, getattr, safe_factory):
+    writer = setattr
+    reader = getattr
+    writer(object(), "factory", safe_factory)
+    factory = reader(object(), "factory")
+    factory()
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    ) == []
