@@ -309,8 +309,6 @@ def test_trusted_boundary_guard_allows_constructor_only_in_composition_root() ->
         )
     )
 
-
-
 def test_adapter_construction_and_factory_calls_are_confined_to_composition_root() -> None:
     source_root = Path(__file__).parents[1] / "src"
     assert scan_source_tree(source_root) == []
