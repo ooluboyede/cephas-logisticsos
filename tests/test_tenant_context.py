@@ -643,8 +643,7 @@ def _trusted_boundary_call_violations(
         for call in (node for node in nodes if isinstance(node, ast.Call)):
             arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
             trusted_arguments = any(
-                _contains_trusted_boundary_reference(argument, symbols)
-                for argument in arguments
+                _contains_trusted_boundary_reference(argument, symbols) for argument in arguments
             )
             if not trusted_arguments:
                 continue
@@ -723,8 +722,7 @@ def _trusted_boundary_call_violations(
                 return False
             receiver_root = _storage_root_name(expression.args[0])
             return (
-                receiver_root is None
-                or symbols.get(receiver_root) == _INDETERMINATE_TRUSTED_ALIAS
+                receiver_root is None or symbols.get(receiver_root) == _INDETERMINATE_TRUSTED_ALIAS
             )
 
         for node in nodes:
@@ -737,10 +735,7 @@ def _trusted_boundary_call_violations(
                 violations.append((node.lineno, "build_tenant_context_adapter"))
             elif (
                 resolved == _INDETERMINATE_TRUSTED_ALIAS
-                or (
-                    resolved is None
-                    and _contains_trusted_boundary_reference(node.func, symbols)
-                )
+                or (resolved is None and _contains_trusted_boundary_reference(node.func, symbols))
                 or tainted_retrieval_receiver(node.func)
             ):
                 violations.append((node.lineno, "indeterminate-trusted-boundary-call"))
@@ -2048,7 +2043,10 @@ obj = Registry()
 setattr(obj, "factory", safe_factory)
 getattr(obj, "factory")()
 """
-    assert _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
