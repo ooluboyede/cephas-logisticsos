@@ -1602,6 +1602,7 @@ factory = registry[0]
 factory()
 """,
         """
+from cephas_logisticsos.composition import build_tenant_context_adapter
 registry = {}
 registry["factory"] = safe_factory
 registry["factory"] = build_tenant_context_adapter
