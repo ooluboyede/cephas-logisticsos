@@ -1645,8 +1645,6 @@ constructor(fake_auth, fake_memberships)
     assert len(violations) == 3
     assert all("indeterminate-trusted-boundary-call" in item for item in violations)
 
-
-
 @pytest.mark.parametrize(
     "source",
     [
@@ -1731,9 +1729,11 @@ def test_r20_alias_aware_storage_and_mutator_flows_fail_closed(source: str) -> N
         module_name="cephas_logisticsos.handlers.request_handler",
     )
     assert violations
-    assert any("indeterminate" in target or target in {
-        "build_tenant_context_adapter", "TrustedTenantContextAdapter"
-    } for _, target in violations)
+    assert any(
+        "indeterminate" in target
+        or target in {"build_tenant_context_adapter", "TrustedTenantContextAdapter"}
+        for _, target in violations
+    )
 
 
 def test_r20_storage_alias_reassignment_and_unrelated_objects_remain_separate() -> None:
@@ -1747,10 +1747,13 @@ second.update({\"factory\": safe_factory})
 factory = first.get if hasattr(first, \"get\") else safe_factory
 factory()
 """
-    assert _trusted_boundary_call_violations(
-        safe_source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            safe_source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
 
 
 def test_r20_production_scanner_rejects_alias_and_mutator_storage_patterns() -> None:
