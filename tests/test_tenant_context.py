@@ -1466,10 +1466,7 @@ factory()
         ordinary_source,
         module_name="cephas_logisticsos.handlers.request_handler",
     )
-    assert any(
-        target == "indeterminate-trusted-boundary-call"
-        for _, target in trusted_violations
-    )
+    assert any(target == "indeterminate-trusted-boundary-call" for _, target in trusted_violations)
     assert ordinary_violations == []
 
 
@@ -1481,10 +1478,13 @@ def harmless_helper():
     factory = resolve_from_registry(build_tenant_context_adapter)
     factory()
 """
-    assert _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
 
 
 def test_unsupported_expression_taint_flows_through_assigned_literal_containers() -> None:
