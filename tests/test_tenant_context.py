@@ -637,28 +637,35 @@ def _trusted_boundary_call_violations(
                 taint_storage(root_name)
 
         # Recognise common mutating APIs when their arguments carry a trusted
-        # reference. Unknown method calls are not assumed to mutate safely; if a
-        # trusted value is passed to a method on an unresolved receiver, fail closed.
+        # reference. Module-qualified and imported operator functions are modelled
+        # by their resolved symbol, not by the spelling of the call expression.
         mutating_methods = {"update", "append", "extend", "__setitem__", "setdefault"}
         for call in (node for node in nodes if isinstance(node, ast.Call)):
+            arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
             trusted_arguments = any(
                 _contains_trusted_boundary_reference(argument, symbols)
-                for argument in [*call.args, *(keyword.value for keyword in call.keywords)]
+                for argument in arguments
             )
             if not trusted_arguments:
                 continue
+
+            resolved_call = _resolve_imported_symbol(call.func, symbols)
+            receiver: ast.expr | None = None
+            is_storage_mutation = False
+
             if isinstance(call.func, ast.Attribute) and call.func.attr in mutating_methods:
-                receiver_root = _storage_root_name(call.func.value)
-                if receiver_root is None:
-                    violations.append((call.lineno, "indeterminate-trusted-storage-mutation"))
-                else:
-                    taint_storage(receiver_root)
-            elif (
-                isinstance(call.func, ast.Name)
-                and call.func.id == "setattr"
-                and len(call.args) >= 3
-            ):
-                receiver_root = _storage_root_name(call.args[0])
+                receiver = call.func.value
+                is_storage_mutation = True
+            elif isinstance(call.func, ast.Name) and call.func.id == "setattr" and len(call.args) >= 3:
+                receiver = call.args[0]
+                is_storage_mutation = True
+            elif resolved_call == "operator.setitem" and len(call.args) >= 3:
+                # operator.setitem(container, key, value) mutates arg[0].
+                receiver = call.args[0]
+                is_storage_mutation = True
+
+            if is_storage_mutation and receiver is not None:
+                receiver_root = _storage_root_name(receiver)
                 if receiver_root is None:
                     violations.append((call.lineno, "indeterminate-trusted-storage-mutation"))
                 else:
@@ -677,7 +684,16 @@ def _trusted_boundary_call_violations(
                     if isinstance(value, ast.Name)
                     else _storage_root_name(value)
                     if isinstance(value, (ast.Attribute, ast.Subscript))
-                    else None
+                    else (
+                        _storage_root_name(value.args[0])
+                        if isinstance(value, ast.Call)
+                        and value.args
+                        and (
+                            (isinstance(value.func, ast.Name) and value.func.id == "getattr")
+                            or _resolve_imported_symbol(value.func, symbols) == "operator.getitem"
+                        )
+                        else None
+                    )
                 )
                 if (
                     source_root is not None
@@ -690,6 +706,23 @@ def _trusted_boundary_call_violations(
                 break
 
         # Calls in this scope are evaluated against this scope's own map.
+        # A retrieval expression can itself be the callable; inspect its storage
+        # argument, not only node.func's apparent callable name.
+        def tainted_retrieval_receiver(expression: ast.expr) -> bool:
+            if not isinstance(expression, ast.Call) or not expression.args:
+                return False
+            is_getattr = isinstance(expression.func, ast.Name) and expression.func.id == "getattr"
+            is_operator_getitem = (
+                _resolve_imported_symbol(expression.func, symbols) == "operator.getitem"
+            )
+            if not (is_getattr or is_operator_getitem):
+                return False
+            receiver_root = _storage_root_name(expression.args[0])
+            return (
+                receiver_root is None
+                or symbols.get(receiver_root) == _INDETERMINATE_TRUSTED_ALIAS
+            )
+
         for node in nodes:
             if not isinstance(node, ast.Call):
                 continue
@@ -698,8 +731,13 @@ def _trusted_boundary_call_violations(
                 violations.append((node.lineno, "TrustedTenantContextAdapter"))
             elif resolved == factory:
                 violations.append((node.lineno, "build_tenant_context_adapter"))
-            elif resolved == _INDETERMINATE_TRUSTED_ALIAS or (
-                resolved is None and _contains_trusted_boundary_reference(node.func, symbols)
+            elif (
+                resolved == _INDETERMINATE_TRUSTED_ALIAS
+                or (
+                    resolved is None
+                    and _contains_trusted_boundary_reference(node.func, symbols)
+                )
+                or tainted_retrieval_receiver(node.func)
             ):
                 violations.append((node.lineno, "indeterminate-trusted-boundary-call"))
 
@@ -1874,3 +1912,139 @@ second(fake_auth, fake_memberships)
         module_name="cephas_logisticsos.handlers.request_handler",
     )
     assert any(target == "indeterminate-trusted-boundary-call" for _, target in violations)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+import operator
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+alias = registry
+operator.setitem(registry, "factory", build_tenant_context_adapter)
+factory = operator.getitem(alias, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from operator import setitem as put, getitem as fetch
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+alias = registry
+put(alias, "factory", build_tenant_context_adapter)
+factory = fetch(registry, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+import operator as op
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+op.setitem(registry, "factory", build_tenant_context_adapter)
+op.getitem(registry, "factory")(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+import operator
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+registry["factory"] = build_tenant_context_adapter
+factory = operator.getitem(registry, dynamic_key)
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+setattr(registry, "factory", build_tenant_context_adapter)
+factory = getattr(alias, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+setattr(registry, dynamic_name, build_tenant_context_adapter)
+getattr(registry, dynamic_name)(authentication=fake_auth, memberships=fake_memberships)
+""",
+    ],
+)
+def test_r21_standard_library_storage_mutation_and_retrieval_fail_closed(source: str) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert violations
+    assert any("indeterminate" in target for _, target in violations)
+
+
+def test_r21_direct_storage_assignment_then_operator_getitem_is_rejected() -> None:
+    source = """
+import operator
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+registry["factory"] = build_tenant_context_adapter
+factory = operator.getitem(registry, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+
+
+def test_r21_production_source_scanner_rejects_complete_standard_library_bypasses() -> None:
+    sources = {
+        "cephas_logisticsos.handlers.operator_storage": """
+import operator
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+alias = registry
+operator.setitem(registry, "factory", build_tenant_context_adapter)
+factory = operator.getitem(alias, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.reflected_storage": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+setattr(registry, "factory", build_tenant_context_adapter)
+factory = getattr(alias, dynamic_attribute)
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+    }
+    violations = _production_source_boundary_violations(sources)
+    assert len(violations) >= 2
+
+
+def test_r21_dynamic_retrieval_from_tainted_storage_is_indeterminate() -> None:
+    source = """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+registry[selected_key] = build_tenant_context_adapter
+factory = registry[another_dynamic_key]
+factory(authentication=fake_auth, memberships=fake_memberships)
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+
+
+def test_r21_unrelated_operator_storage_and_safe_factory_remain_allowed() -> None:
+    source = """
+import operator
+from safe_module import safe_factory
+registry = {}
+operator.setitem(registry, "factory", safe_factory)
+factory = operator.getitem(registry, "factory")
+factory()
+class Registry: pass
+obj = Registry()
+setattr(obj, "factory", safe_factory)
+getattr(obj, "factory")()
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    ) == []
