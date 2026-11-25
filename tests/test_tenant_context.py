@@ -608,10 +608,16 @@ def _trusted_boundary_call_violations(
                 final_name_bindings[target.id] = value
         for target_name, value in final_name_bindings.items():
             if isinstance(value, ast.Name):
-                join_storage(target_name, value.id)
+                # A name resolving to a trusted callable is a callable alias,
+                # not an alias to the registry/object that stores callables.
+                if _resolve_imported_symbol(value, symbols) is None:
+                    join_storage(target_name, value.id)
             elif isinstance(value, (ast.Attribute, ast.Subscript)):
                 source_root = _storage_root_name(value)
-                if source_root is not None:
+                if (
+                    source_root is not None
+                    and _resolve_imported_symbol(value, symbols) is None
+                ):
                     join_storage(target_name, source_root)
 
         def taint_storage(name: str) -> None:
@@ -667,12 +673,22 @@ def _trusted_boundary_call_violations(
         for _ in range(len(local_names) + 1):
             changed = False
             for target, value in assignments:
-                if isinstance(target, ast.Name) and _contains_trusted_boundary_reference(
-                    value, symbols
+                if not isinstance(target, ast.Name):
+                    continue
+                source_root = (
+                    value.id
+                    if isinstance(value, ast.Name)
+                    else _storage_root_name(value)
+                    if isinstance(value, (ast.Attribute, ast.Subscript))
+                    else None
+                )
+                if (
+                    source_root is not None
+                    and symbols.get(source_root) == _INDETERMINATE_TRUSTED_ALIAS
+                    and symbols.get(target.id) != _INDETERMINATE_TRUSTED_ALIAS
                 ):
-                    if symbols.get(target.id) != _INDETERMINATE_TRUSTED_ALIAS:
-                        symbols[target.id] = _INDETERMINATE_TRUSTED_ALIAS
-                        changed = True
+                    symbols[target.id] = _INDETERMINATE_TRUSTED_ALIAS
+                    changed = True
             if not changed:
                 break
 
