@@ -656,7 +656,11 @@ def _trusted_boundary_call_violations(
             if isinstance(call.func, ast.Attribute) and call.func.attr in mutating_methods:
                 receiver = call.func.value
                 is_storage_mutation = True
-            elif isinstance(call.func, ast.Name) and call.func.id == "setattr" and len(call.args) >= 3:
+            elif (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "setattr"
+                and len(call.args) >= 3
+            ):
                 receiver = call.args[0]
                 is_storage_mutation = True
             elif resolved_call == "operator.setitem" and len(call.args) >= 3:
