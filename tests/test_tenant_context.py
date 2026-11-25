@@ -1645,6 +1645,7 @@ constructor(fake_auth, fake_memberships)
     assert len(violations) == 3
     assert all("indeterminate-trusted-boundary-call" in item for item in violations)
 
+
 @pytest.mark.parametrize(
     "source",
     [
