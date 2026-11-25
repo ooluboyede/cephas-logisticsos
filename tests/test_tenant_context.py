@@ -2174,8 +2174,11 @@ bi.setattr(registry, "factory", safe_factory)
 factory = bi.getattr(registry, "factory")
 factory()
 """
-    assert _trusted_boundary_call_violations(
-        source,
-        module_name="cephas_logisticsos.handlers.request_handler",
-    ) == []
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
 
