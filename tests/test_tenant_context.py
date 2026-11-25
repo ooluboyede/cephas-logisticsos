@@ -263,7 +263,10 @@ def _resolve_imported_symbol(
         return resolved
     if isinstance(expression, (ast.Attribute, ast.Subscript)):
         root_name = _storage_root_name(expression)
-        if root_name is not None and imported_symbols.get(root_name) == _INDETERMINATE_TRUSTED_ALIAS:
+        if (
+            root_name is not None
+            and imported_symbols.get(root_name) == _INDETERMINATE_TRUSTED_ALIAS
+        ):
             return _INDETERMINATE_TRUSTED_ALIAS
     if isinstance(expression, ast.Attribute):
         parent = _resolve_imported_symbol(expression.value, imported_symbols)
@@ -368,7 +371,10 @@ def _bind_assignment_aliases(
         # root object. Conservatively taint that root so later reads, including
         # dynamic-key reads and chained attribute access, remain indeterminate.
         root_name = _storage_root_name(target)
-        if root_name is not None and imported_symbols.get(root_name) != _INDETERMINATE_TRUSTED_ALIAS:
+        if (
+            root_name is not None
+            and imported_symbols.get(root_name) != _INDETERMINATE_TRUSTED_ALIAS
+        ):
             imported_symbols[root_name] = _INDETERMINATE_TRUSTED_ALIAS
             return True
         return False
