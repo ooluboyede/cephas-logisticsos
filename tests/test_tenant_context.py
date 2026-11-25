@@ -4,6 +4,11 @@ from pathlib import Path
 import pytest
 
 from cephas_logisticsos.core.identifiers import validate_identifier
+from cephas_logisticsos.security.trusted_boundary import (
+    _production_source_boundary_violations,
+    _trusted_boundary_call_violations,
+    scan_source_tree,
+)
 from cephas_logisticsos.tenancy import (
     AuthenticatedPrincipal,
     TenantContextError,
@@ -11,11 +16,6 @@ from cephas_logisticsos.tenancy import (
     TenantScope,
 )
 from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
-from cephas_logisticsos.security.trusted_boundary import (
-    _production_source_boundary_violations,
-    _trusted_boundary_call_violations,
-    scan_source_tree,
-)
 
 
 class FakeAuthentication:
