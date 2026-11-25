@@ -257,7 +257,14 @@ def _resolve_imported_symbol(
     imported_symbols: dict[str, str | ast.expr | None],
 ) -> str | None:
     if isinstance(expression, ast.Name):
-        resolved = imported_symbols.get(expression.id, expression.id)
+        if expression.id in imported_symbols:
+            resolved = imported_symbols[expression.id]
+        elif expression.id in {"setattr", "getattr"}:
+            # Bare builtin references are canonicalised only when the lexical
+            # scope has not shadowed the builtin name.
+            return f"builtins.{expression.id}"
+        else:
+            resolved = expression.id
         if isinstance(resolved, ast.expr):
             return _resolve_imported_symbol(resolved, imported_symbols)
         return resolved
@@ -293,6 +300,15 @@ def _resolve_imported_symbol(
             if -len(elements) <= index < len(elements):
                 return _resolve_imported_symbol(elements[index], imported_symbols)
     return None
+
+
+def _is_builtin_operation(
+    expression: ast.expr,
+    builtin_name: str,
+    imported_symbols: dict[str, str | ast.expr | None],
+) -> bool:
+    """Resolve direct, imported, module-qualified and assigned builtin aliases."""
+    return _resolve_imported_symbol(expression, imported_symbols) == f"builtins.{builtin_name}"
 
 
 def _contains_trusted_boundary_reference(
@@ -655,11 +671,7 @@ def _trusted_boundary_call_violations(
             if isinstance(call.func, ast.Attribute) and call.func.attr in mutating_methods:
                 receiver = call.func.value
                 is_storage_mutation = True
-            elif (
-                isinstance(call.func, ast.Name)
-                and call.func.id == "setattr"
-                and len(call.args) >= 3
-            ):
+            elif _is_builtin_operation(call.func, "setattr", symbols) and len(call.args) >= 3:
                 receiver = call.args[0]
                 is_storage_mutation = True
             elif resolved_call == "operator.setitem" and len(call.args) >= 3:
@@ -692,7 +704,7 @@ def _trusted_boundary_call_violations(
                         if isinstance(value, ast.Call)
                         and value.args
                         and (
-                            (isinstance(value.func, ast.Name) and value.func.id == "getattr")
+                            _is_builtin_operation(value.func, "getattr", symbols)
                             or _resolve_imported_symbol(value.func, symbols) == "operator.getitem"
                         )
                         else None
@@ -714,7 +726,7 @@ def _trusted_boundary_call_violations(
         def tainted_retrieval_receiver(expression: ast.expr) -> bool:
             if not isinstance(expression, ast.Call) or not expression.args:
                 return False
-            is_getattr = isinstance(expression.func, ast.Name) and expression.func.id == "getattr"
+            is_getattr = _is_builtin_operation(expression.func, "getattr", symbols)
             is_operator_getitem = (
                 _resolve_imported_symbol(expression.func, symbols) == "operator.getitem"
             )
@@ -2050,3 +2062,120 @@ getattr(obj, "factory")()
         )
         == []
     )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+import builtins as bi
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+bi.setattr(registry, "factory", build_tenant_context_adapter)
+factory = bi.getattr(alias, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from builtins import setattr as put, getattr as fetch
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+alias = registry
+put(alias, "factory", build_tenant_context_adapter)
+factory = fetch(registry, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+import builtins as bi
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+put = bi.setattr
+fetch = bi.getattr
+put_alias = put
+fetch_alias = fetch
+put_alias(registry, dynamic_name, build_tenant_context_adapter)
+factory = fetch_alias(registry, dynamic_name)
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from builtins import setattr as put, getattr as fetch
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+put_alias = put
+fetch_alias = fetch
+put_alias(registry, "factory", build_tenant_context_adapter)
+fetch_alias(registry, "factory")(authentication=fake_auth, memberships=fake_memberships)
+""",
+    ],
+)
+def test_r22_builtin_storage_aliases_fail_closed_at_final_invocation(source: str) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    final_invocation_line = len(source.strip().splitlines())
+    assert (final_invocation_line, "indeterminate-trusted-boundary-call") in violations
+
+
+def test_r22_shadowed_setattr_and_getattr_names_are_not_treated_as_builtins() -> None:
+    source = """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+def handler(setattr, getattr):
+    setattr = safe_writer
+    getattr = safe_reader
+    setattr(registry, "factory", build_tenant_context_adapter)
+    factory = getattr(registry, "factory")
+    factory()
+"""
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == "indeterminate-trusted-storage-mutation" for _, target in violations)
+    assert any(target == "indeterminate-trusted-boundary-call" for _, target in violations)
+
+
+def test_r22_builtin_aliases_are_detected_by_production_source_scanner() -> None:
+    sources = {
+        "cephas_logisticsos.handlers.builtin_storage": """
+import builtins as bi
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+put = bi.setattr
+fetch = bi.getattr
+put(registry, "factory", build_tenant_context_adapter)
+fetch(registry, "factory")(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.imported_builtin_storage": """
+from builtins import setattr as put, getattr as fetch
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry: pass
+registry = Registry()
+put(registry, "factory", build_tenant_context_adapter)
+factory = fetch(registry, "factory")
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+    }
+    violations = _production_source_boundary_violations(sources)
+    assert len(violations) >= 2
+
+
+def test_r22_safe_builtin_retrieval_without_trusted_storage_remains_allowed() -> None:
+    source = """
+import builtins as bi
+class Registry: pass
+registry = Registry()
+bi.setattr(registry, "factory", safe_factory)
+factory = bi.getattr(registry, "factory")
+factory()
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    ) == []
+
