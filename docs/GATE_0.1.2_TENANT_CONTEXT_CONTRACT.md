@@ -133,3 +133,43 @@ Lexical shadowing is preserved: a local or parameter binding named `setattr` or 
 
 This is a targeted canonical resolver for the reviewed builtin operations, not general Python name resolution or a complete model of monkey-patching, dynamic imports, reflection, arbitrary callables, or same-process execution. Exact-head CI and independent reassessment remain mandatory. R-22 does not establish overall Gate 0.1.2 acceptance.
 
+
+
+## R-23 — executable trusted-boundary enforcement
+
+The bounded trusted-boundary AST analyser is maintained in
+`src/cephas_logisticsos/security/trusted_boundary.py`, not in the test module.
+It exposes a dedicated build-time command:
+
+```bash
+python -m cephas_logisticsos.security.trusted_boundary --source src
+```
+
+The command scans Python modules beneath the selected source root and exits non-zero
+when a trusted tenant-context adapter constructor or composition factory is called
+outside the approved composition root. It reports module, source line and violation
+classification. Unit tests import this maintained implementation; they do not own a
+separate copy of the scanner.
+
+The CI workflow invokes the command after installing the package and before lint,
+type checking and pytest. Pull-request triggers now include `security/**` base
+branches as well as the existing main and feature branches. This closes the prior
+workflow-trigger omission for stacked security PRs.
+
+R-23 also adds CLI pass/fail tests, storage replacement regression fixtures and a
+parameter-shadowing negative control. The storage model remains conservative and
+bounded: replacement after a trusted write may continue to be classified as
+indeterminate. This is intentional fail-closed behaviour, not proof of full Python
+runtime alias semantics.
+
+**Release-control limitation:** a workflow step alone does not establish GitHub
+branch protection or required-status-check enforcement. Repository administration
+must configure the relevant target branches to require the CI job before merge, and
+deployment must consume only artifacts produced by the approved workflow. The
+current GitHub branch metadata reviewed for this work reports protection disabled;
+therefore R-23 does not claim that branch protection is configured.
+
+R-23 is implementation work only. It does not establish PostgreSQL RLS, database
+tenant/business-unit isolation, production identity integration, authoritative
+membership, central authorization, background-job isolation, or production
+certification. Independent reassessment remains required.
