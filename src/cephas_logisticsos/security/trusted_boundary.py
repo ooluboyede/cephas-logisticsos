@@ -589,6 +589,7 @@ def _trusted_boundary_call_violations(
     analyze_scope(tree.body, {}, scope_kind="module")
     return violations
 
+
 def _production_source_boundary_violations(
     source_by_module: dict[str, str],
 ) -> list[str]:
