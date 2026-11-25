@@ -599,9 +599,20 @@ def _trusted_boundary_call_violations(
             if left_root != right_root:
                 storage_parent[right_root] = left_root
 
+        # Only the final statically visible binding determines a name's
+        # current storage identity. This avoids permanently merging an alias
+        # with an object after that name has been reassigned.
+        final_name_bindings: dict[str, ast.expr] = {}
         for target, value in assignments:
-            if isinstance(target, ast.Name) and isinstance(value, ast.Name):
-                join_storage(target.id, value.id)
+            if isinstance(target, ast.Name):
+                final_name_bindings[target.id] = value
+        for target_name, value in final_name_bindings.items():
+            if isinstance(value, ast.Name):
+                join_storage(target_name, value.id)
+            elif isinstance(value, (ast.Attribute, ast.Subscript)):
+                source_root = _storage_root_name(value)
+                if source_root is not None:
+                    join_storage(target_name, source_root)
 
         def taint_storage(name: str) -> None:
             root = storage_root(name)
@@ -649,6 +660,21 @@ def _trusted_boundary_call_violations(
                     violations.append((call.lineno, "indeterminate-trusted-storage-mutation"))
                 else:
                     taint_storage(receiver_root)
+
+        # Revisit name assignments after storage taint is known. A callable
+        # retrieved through an alias to a mutated registry must itself become
+        # indeterminate before call sites are classified.
+        for _ in range(len(local_names) + 1):
+            changed = False
+            for target, value in assignments:
+                if isinstance(target, ast.Name) and _contains_trusted_boundary_reference(
+                    value, symbols
+                ):
+                    if symbols.get(target.id) != _INDETERMINATE_TRUSTED_ALIAS:
+                        symbols[target.id] = _INDETERMINATE_TRUSTED_ALIAS
+                        changed = True
+            if not changed:
+                break
 
         # Calls in this scope are evaluated against this scope's own map.
         for node in nodes:
