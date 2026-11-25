@@ -1616,9 +1616,7 @@ def test_trusted_boundary_storage_replacement_remains_fail_closed(source: str) -
         module_name="cephas_logisticsos.handlers.request_handler",
     )
     final_call_line = max(
-        node.lineno
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call)
+        node.lineno for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)
     )
     assert (final_call_line, "indeterminate-trusted-boundary-call") in violations
 
