@@ -117,3 +117,19 @@ Supported retrieval coverage includes:
 Dynamic keys and attribute names do not reduce the taint of an already-tainted receiver. The production-source scanner must include complete mutation → retrieval → invocation fixtures and safe negative controls for unrelated storage and safe factories.
 
 This remains a deliberately bounded static analysis. It does not claim to model arbitrary user-defined functions, all Python standard-library APIs, general heap identity, or runtime reflection without a statically visible trusted reference. Exact-head CI and independent reassessment are required; R-21 implementation or green CI alone does not constitute Gate 0.1.2 acceptance.
+
+## R-22 — canonical builtin storage mutation and retrieval
+
+R-22 extends the bounded source guard's canonical symbol resolver to recognise the builtin mutation and retrieval operations used by R21-01.
+
+Supported builtin identity forms include:
+- Direct unshadowed `setattr()` and `getattr()` references.
+- Module-qualified `builtins.setattr()` and `builtins.getattr()`, including aliases of the `builtins` module.
+- Imported builtin symbols such as `from builtins import setattr as put`.
+- Simple assignment aliases of imported or module-qualified builtin references.
+- Retrieval propagation and direct retrieval-expression invocation checks using the canonical builtin identity.
+
+Lexical shadowing is preserved: a local or parameter binding named `setattr` or `getattr` is not automatically treated as the builtin. The regression suite must assert that prohibited final callable invocations are rejected, cover the production-source scanner, and retain safe negative controls.
+
+This is a targeted canonical resolver for the reviewed builtin operations, not general Python name resolution or a complete model of monkey-patching, dynamic imports, reflection, arbitrary callables, or same-process execution. Exact-head CI and independent reassessment remain mandatory. R-22 does not establish overall Gate 0.1.2 acceptance.
+
