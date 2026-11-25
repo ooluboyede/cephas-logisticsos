@@ -197,6 +197,9 @@ def test_architecture_restricts_private_evidence_module_imports() -> None:
     assert violations == []
 
 
+_INDETERMINATE_TRUSTED_ALIAS = "__cephas_indeterminate_trusted_boundary_alias__"
+
+
 def _literal_container_index(expression: ast.expr) -> int | None:
     """Return a supported integer literal index, excluding booleans."""
     if isinstance(expression, ast.Constant):
@@ -277,6 +280,46 @@ def _resolve_imported_symbol(
     return None
 
 
+def _contains_trusted_boundary_reference(
+    expression: ast.expr,
+    imported_symbols: dict[str, str | ast.expr | None],
+) -> bool:
+    """Find known trusted-boundary references inside unsupported expressions.
+
+    This narrow taint check does not reject arbitrary indirect calls. It marks
+    expressions only when their syntax or a retained container alias refers to
+    a known trusted constructor, factory, trusted module, or tainted alias.
+    """
+    trusted_targets = {
+        "cephas_logisticsos.tenancy.trusted_context.TrustedTenantContextAdapter",
+        "cephas_logisticsos.composition.build_tenant_context_adapter",
+        "cephas_logisticsos.tenancy",
+        "cephas_logisticsos.tenancy.trusted_context",
+        "cephas_logisticsos.composition",
+        _INDETERMINATE_TRUSTED_ALIAS,
+    }
+    inspected_aliases: set[str] = set()
+
+    def visit(node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            mapped = imported_symbols.get(node.id)
+            if mapped == _INDETERMINATE_TRUSTED_ALIAS:
+                return True
+            if isinstance(mapped, ast.expr) and node.id not in inspected_aliases:
+                inspected_aliases.add(node.id)
+                if visit(mapped):
+                    return True
+
+        if isinstance(node, ast.expr):
+            resolved = _resolve_imported_symbol(node, imported_symbols)
+            if resolved in trusted_targets:
+                return True
+
+        return any(visit(child) for child in ast.iter_child_nodes(node))
+
+    return visit(expression)
+
+
 def _bind_assignment_aliases(
     target: ast.expr,
     value: ast.expr,
@@ -299,6 +342,11 @@ def _bind_assignment_aliases(
             if imported_symbols.get(target.id) is container_value:
                 return False
             imported_symbols[target.id] = container_value
+            return True
+        if _contains_trusted_boundary_reference(value, imported_symbols):
+            if imported_symbols.get(target.id) == _INDETERMINATE_TRUSTED_ALIAS:
+                return False
+            imported_symbols[target.id] = _INDETERMINATE_TRUSTED_ALIAS
             return True
         return False
     if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
@@ -514,6 +562,10 @@ def _trusted_boundary_call_violations(
                 violations.append((node.lineno, "TrustedTenantContextAdapter"))
             elif resolved == factory:
                 violations.append((node.lineno, "build_tenant_context_adapter"))
+            elif resolved == _INDETERMINATE_TRUSTED_ALIAS or (
+                resolved is None and _contains_trusted_boundary_reference(node.func, symbols)
+            ):
+                violations.append((node.lineno, "indeterminate-trusted-boundary-call"))
 
         # A method defined in a class does not close over the class namespace.
         # Function scopes do inherit enclosing function/module bindings.
@@ -1326,3 +1378,127 @@ def handler():
         )
         == []
     )
+
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+constructors = [TrustedTenantContextAdapter]
+index = choose_constructor()
+factory = constructors[index]
+factory(fake_auth, fake_memberships)
+""",
+        """
+import cephas_logisticsos.composition as trusted_composition
+factory = getattr(trusted_composition, selected_factory_name)
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {"adapter": build_tenant_context_adapter}
+factory = registry[selected_name]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+constructors = [TrustedTenantContextAdapter]
+first = constructors[choose_index()]
+second = first
+second(fake_auth, fake_memberships)
+""",
+    ],
+)
+def test_unsupported_expressions_referencing_trusted_symbols_are_indeterminate(
+    source: str,
+) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == "indeterminate-trusted-boundary-call" for _, target in violations)
+
+
+def test_production_source_scan_fails_closed_for_unsupported_trusted_aliases() -> None:
+    sources = {
+        "cephas_logisticsos.handlers.dynamic_index": """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+constructors = [TrustedTenantContextAdapter]
+index = choose_constructor()
+factory = constructors[index]
+factory(fake_auth, fake_memberships)
+""",
+        "cephas_logisticsos.handlers.dynamic_reflection": """
+import cephas_logisticsos.composition as trusted_composition
+factory = getattr(trusted_composition, selected_factory_name)
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.unresolved_container": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {"adapter": build_tenant_context_adapter}
+factory = registry[selected_name]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+    }
+    violations = _production_source_boundary_violations(sources)
+    assert len(violations) == 3
+    assert all("indeterminate-trusted-boundary-call" in item for item in violations)
+
+
+def test_unsupported_alias_taint_propagates_but_unrelated_indirect_calls_remain_allowed() -> None:
+    trusted_source = """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+factory = resolve_from_registry(build_tenant_context_adapter)
+another_name = factory
+another_name(authentication=fake_auth, memberships=fake_memberships)
+"""
+    ordinary_source = """
+from safe_module import safe_factory
+factory = resolve_from_registry(safe_factory)
+factory()
+"""
+    trusted_violations = _trusted_boundary_call_violations(
+        trusted_source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    ordinary_violations = _trusted_boundary_call_violations(
+        ordinary_source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(
+        target == "indeterminate-trusted-boundary-call"
+        for _, target in trusted_violations
+    )
+    assert ordinary_violations == []
+
+
+def test_unsupported_expression_taint_respects_local_shadowing() -> None:
+    source = """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+def harmless_helper():
+    build_tenant_context_adapter = safe_factory
+    factory = resolve_from_registry(build_tenant_context_adapter)
+    factory()
+"""
+    assert _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    ) == []
+
+
+def test_unsupported_expression_taint_flows_through_assigned_literal_containers() -> None:
+    source = """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+constructors = [TrustedTenantContextAdapter]
+index = choose_constructor()
+factory = constructors[index]
+second = factory
+second(fake_auth, fake_memberships)
+"""
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == "indeterminate-trusted-boundary-call" for _, target in violations)
