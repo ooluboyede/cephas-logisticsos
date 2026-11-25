@@ -51,6 +51,15 @@ The private evidence issuer and capability live only in `tenancy/_trusted_adapte
 
 This is a Python application architecture guard, not a security sandbox. Code with arbitrary execution inside the same process can use reflection, dynamic imports, monkey-patching, or other runtime techniques to bypass Python-level conventions. The guard prevents accidental/direct source-level coupling and regression; it is not a cryptographic or process-isolation boundary.
 
+### R-20 — alias-aware storage and mutation analysis
+
+The source guard additionally maintains a bounded, lexical-scope-local may-alias model for statically visible storage names. Direct name aliases and names assigned from statically rooted attribute/subscript expressions are associated with a shared abstract storage identity. When a trusted constructor, factory, trusted module, or already-indeterminate reference is written through an attribute or subscript, the guard marks the shared storage identity indeterminate and propagates that state to known aliases. It then revisits assigned names so callables retrieved from a tainted registry are also rejected at their call sites.
+
+The guard recognises the targeted mutation forms `dict.update()`, `list.append()`, `list.extend()`, `setdefault()`, `__setitem__()`, and the builtin `setattr()` when their statically visible arguments contain a trusted reference. A mutation through a statically rooted receiver taints the receiver's abstract storage identity. A trusted write or mutation through an unsupported receiver/root (for example, `get_registry().factory = trusted_factory` or `get_registry().update(...)`) produces an explicit indeterminate finding and fails the construction-boundary check closed.
+
+The model is intentionally conservative and bounded. It does not implement general Python heap/object-identity analysis, control-flow-sensitive points-to analysis, interprocedural alias analysis, arbitrary descriptor/property semantics, every user-defined mutator, reflection with no statically visible trusted reference, runtime monkey-patching, dynamic imports, or arbitrary same-process code execution. The static alias grouping may conservatively taint related names and is not proof of runtime object identity. Reassignment is handled for the final statically visible name binding in the analyzed scope; complex control-flow-dependent rebinding remains outside the guarantee. These limits must not be described as a runtime authorization or isolation boundary.
+
+
 ## Implemented in this gate
 
 - Immutable public principal and membership data carriers with strict field validation.
