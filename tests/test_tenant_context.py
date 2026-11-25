@@ -1500,8 +1500,8 @@ factory(authentication=fake_auth, memberships=fake_memberships)
 """,
         """
 from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
-registry = []
-registry.append(TrustedTenantContextAdapter)
+registry = [None]
+registry[selected_index] = TrustedTenantContextAdapter
 constructor = registry[selected_index]
 constructor(fake_auth, fake_memberships)
 """,
@@ -1535,8 +1535,8 @@ factory(authentication=fake_auth, memberships=fake_memberships)
 """,
         "cephas_logisticsos.handlers.list_mutation": """
 from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
-registry = []
-registry.append(TrustedTenantContextAdapter)
+registry = [None]
+registry[selected_index] = TrustedTenantContextAdapter
 constructor = registry[selected_index]
 constructor(fake_auth, fake_memberships)
 """,
