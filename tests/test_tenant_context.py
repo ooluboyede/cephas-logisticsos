@@ -2117,7 +2117,7 @@ def test_r22_builtin_storage_aliases_fail_closed_at_final_invocation(source: str
         source,
         module_name="cephas_logisticsos.handlers.request_handler",
     )
-    final_invocation_line = len(source.strip().splitlines())
+    final_invocation_line = len(source.splitlines())
     assert (final_invocation_line, "indeterminate-trusted-boundary-call") in violations
 
 
