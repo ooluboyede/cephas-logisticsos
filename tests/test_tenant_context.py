@@ -244,6 +244,14 @@ def _resolve_container_expression(
     return None
 
 
+def _storage_root_name(expression: ast.expr) -> str | None:
+    """Return the root name for an attribute/subscript storage expression."""
+    current = expression
+    while isinstance(current, (ast.Attribute, ast.Subscript)):
+        current = current.value
+    return current.id if isinstance(current, ast.Name) else None
+
+
 def _resolve_imported_symbol(
     expression: ast.expr,
     imported_symbols: dict[str, str | ast.expr | None],
@@ -253,6 +261,10 @@ def _resolve_imported_symbol(
         if isinstance(resolved, ast.expr):
             return _resolve_imported_symbol(resolved, imported_symbols)
         return resolved
+    if isinstance(expression, (ast.Attribute, ast.Subscript)):
+        root_name = _storage_root_name(expression)
+        if root_name is not None and imported_symbols.get(root_name) == _INDETERMINATE_TRUSTED_ALIAS:
+            return _INDETERMINATE_TRUSTED_ALIAS
     if isinstance(expression, ast.Attribute):
         parent = _resolve_imported_symbol(expression.value, imported_symbols)
         return f"{parent}.{expression.attr}" if parent else None
@@ -347,6 +359,17 @@ def _bind_assignment_aliases(
             if imported_symbols.get(target.id) == _INDETERMINATE_TRUSTED_ALIAS:
                 return False
             imported_symbols[target.id] = _INDETERMINATE_TRUSTED_ALIAS
+            return True
+        return False
+    if isinstance(target, (ast.Attribute, ast.Subscript)) and _contains_trusted_boundary_reference(
+        value, imported_symbols
+    ):
+        # Attribute and subscript mutation changes storage reachable through the
+        # root object. Conservatively taint that root so later reads, including
+        # dynamic-key reads and chained attribute access, remain indeterminate.
+        root_name = _storage_root_name(target)
+        if root_name is not None and imported_symbols.get(root_name) != _INDETERMINATE_TRUSTED_ALIAS:
+            imported_symbols[root_name] = _INDETERMINATE_TRUSTED_ALIAS
             return True
         return False
     if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
@@ -1444,6 +1467,106 @@ factory(authentication=fake_auth, memberships=fake_memberships)
     violations = _production_source_boundary_violations(sources)
     assert len(violations) == 3
     assert all("indeterminate-trusted-boundary-call" in item for item in violations)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry:
+    pass
+registry = Registry()
+registry.factory = build_tenant_context_adapter
+factory = registry.factory
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+class Registry:
+    pass
+registry = Registry()
+registry.inner = Registry()
+registry.inner.constructor = TrustedTenantContextAdapter
+constructor = registry.inner.constructor
+constructor(fake_auth, fake_memberships)
+""",
+        """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+registry["factory"] = build_tenant_context_adapter
+factory = registry[selected_name]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+registry = []
+registry.append(TrustedTenantContextAdapter)
+constructor = registry[selected_index]
+constructor(fake_auth, fake_memberships)
+""",
+    ],
+)
+def test_mutated_attribute_and_container_aliases_are_indeterminate(source: str) -> None:
+    violations = _trusted_boundary_call_violations(
+        source,
+        module_name="cephas_logisticsos.handlers.request_handler",
+    )
+    assert any(target == "indeterminate-trusted-boundary-call" for _, target in violations)
+
+
+def test_production_source_scan_rejects_mutated_attribute_and_container_aliases() -> None:
+    sources = {
+        "cephas_logisticsos.handlers.attribute_mutation": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+class Registry:
+    pass
+registry = Registry()
+registry.factory = build_tenant_context_adapter
+factory = registry.factory
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.dictionary_mutation": """
+from cephas_logisticsos.composition import build_tenant_context_adapter
+registry = {}
+registry["factory"] = build_tenant_context_adapter
+factory = registry[selected_name]
+factory(authentication=fake_auth, memberships=fake_memberships)
+""",
+        "cephas_logisticsos.handlers.list_mutation": """
+from cephas_logisticsos.tenancy.trusted_context import TrustedTenantContextAdapter
+registry = []
+registry.append(TrustedTenantContextAdapter)
+constructor = registry[selected_index]
+constructor(fake_auth, fake_memberships)
+""",
+    }
+    violations = _production_source_boundary_violations(sources)
+    assert len(violations) == 3
+    assert all("indeterminate-trusted-boundary-call" in item for item in violations)
+
+
+def test_attribute_and_container_taint_preserves_unrelated_safe_storage() -> None:
+    source = """
+from safe_module import safe_factory
+class Registry:
+    pass
+registry = Registry()
+registry.factory = safe_factory
+factory = registry.factory
+factory()
+items = []
+items.append(safe_factory)
+other = items[0]
+other()
+"""
+    assert (
+        _trusted_boundary_call_violations(
+            source,
+            module_name="cephas_logisticsos.handlers.request_handler",
+        )
+        == []
+    )
 
 
 def test_unsupported_alias_taint_propagates_but_unrelated_indirect_calls_remain_allowed() -> None:
