@@ -128,7 +128,7 @@ def test_cli_fails_closed_on_unexpected_scanner_error(
         main(["--source", str(tmp_path)])
     assert error.value.code == 2
 
- 
+
 def test_cli_rejects_symlinked_source_root(tmp_path: Path) -> None:
     real_root = tmp_path / "real-source"
     real_root.mkdir()
