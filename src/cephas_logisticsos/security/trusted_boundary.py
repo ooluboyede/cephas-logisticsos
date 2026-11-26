@@ -2,6 +2,7 @@
 
 import argparse
 import ast
+import os
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -611,13 +612,63 @@ def _production_source_boundary_violations(
 
 
 def scan_source_tree(source_root: Path) -> list[str]:
-    """Scan every Python source module and return policy violations."""
+    """Scan the approved source tree, rejecting links and incomplete roots."""
+    if source_root.is_symlink():
+        raise ValueError(f"source root must not be a symlink: {source_root}")
     if not source_root.is_dir():
         raise FileNotFoundError(f"source directory does not exist: {source_root}")
+
+    package_root = source_root / "cephas_logisticsos"
+    if package_root.is_symlink():
+        raise ValueError(f"production package root must not be a symlink: {package_root}")
+    if not package_root.is_dir():
+        raise FileNotFoundError(f"expected production package directory is missing: {package_root}")
+    package_init = package_root / "__init__.py"
+    if package_init.is_symlink():
+        raise ValueError(f"production package initializer must not be a symlink: {package_init}")
+    if not package_init.is_file():
+        raise FileNotFoundError(
+            f"expected production package initializer is missing: {package_init}"
+        )
+
     source_by_module: dict[str, str] = {}
-    for path in sorted(source_root.rglob("*.py")):
-        module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
-        source_by_module[module_name] = path.read_text(encoding="utf-8")
+
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for current_root, directory_names, file_names in os.walk(
+        source_root,
+        topdown=True,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
+        current_path = Path(current_root)
+        for directory_name in sorted(directory_names):
+            directory_path = current_path / directory_name
+            if directory_path.is_symlink():
+                raise ValueError(
+                    f"symlinked directories are prohibited in the source tree: {directory_path}"
+                )
+        directory_names.sort()
+        for file_name in sorted(file_names):
+            path = current_path / file_name
+            if path.is_symlink():
+                raise ValueError(f"symlinked files are prohibited in the source tree: {path}")
+            if path.suffix != ".py":
+                continue
+            module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
+            source_by_module[module_name] = path.read_text(encoding="utf-8")
+
+    if not source_by_module:
+        raise ValueError(f"no Python source files discovered beneath: {source_root}")
+    if not any(
+        module_name == "cephas_logisticsos" or module_name.startswith("cephas_logisticsos.")
+        for module_name in source_by_module
+    ):
+        raise ValueError(
+            f"no importable cephas_logisticsos Python modules discovered beneath: {source_root}"
+        )
+
     return _production_source_boundary_violations(source_by_module)
 
 
@@ -627,8 +678,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         violations = scan_source_tree(args.source)
-    except (OSError, UnicodeError) as error:
-        parser.error(str(error))
+    except Exception as error:
+        # Configuration, filesystem, decoding and syntax failures all fail closed.
+        parser.error(f"trusted-boundary scan could not complete: {error}")
     if violations:
         print("Trusted tenant-boundary policy violations:")
         for violation in violations:
