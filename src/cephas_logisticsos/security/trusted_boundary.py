@@ -627,9 +627,7 @@ def _validate_source_root_path(source_root: Path) -> Path:
         except FileNotFoundError:
             break
         if stat.S_ISLNK(metadata.st_mode):
-            raise ValueError(
-                f"source-root path components must not contain symlinks: {current}"
-            )
+            raise ValueError(f"source-root path components must not contain symlinks: {current}")
     if not absolute_root.is_dir():
         raise FileNotFoundError(f"source directory does not exist: {absolute_root}")
     return absolute_root
