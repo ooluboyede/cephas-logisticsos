@@ -173,3 +173,48 @@ R-23 is implementation work only. It does not establish PostgreSQL RLS, database
 tenant/business-unit isolation, production identity integration, authoritative
 membership, central authorization, background-job isolation, or production
 certification. Independent reassessment remains required.
+
+
+## R-24 — fail-closed source discovery and scanner resilience
+
+R-24 addresses the independent reassessment findings that the R-23 source walker could
+omit importable modules beneath symlinked package directories and could report success
+for an empty or unrelated source root.
+
+The scanner now applies an explicit **no-symlinks** policy beneath the approved source
+root. It rejects a symlinked source root, production package root, any symlinked
+directory, and any symlinked file before reading Python modules. It does not follow
+symlinks. This prevents a symlinked package directory from exposing importable source
+that is absent from the scanner's enumerated source set, and avoids traversal cycles
+and path-escape decisions.
+
+The scanner also requires:
+- An existing, non-symlink source directory.
+- The expected `cephas_logisticsos/` production package directory.
+- A regular, non-symlink `cephas_logisticsos/__init__.py`.
+- At least one discovered Python module, including a module beneath the expected
+  production package.
+
+Filesystem walk errors, file-read/decoding errors, syntax errors, invalid source
+layouts, and unexpected scanner exceptions cause the CLI to emit an argparse error
+and exit non-zero. The CLI does not print a successful scan result unless source
+discovery and analysis complete.
+
+Regression tests cover a symlinked package directory containing a prohibited
+trusted-adapter construction, a symlinked Python file, empty and unrelated roots,
+a package missing its initializer, a missing source root, syntax errors, filesystem
+walk errors, and unexpected scanner failures. Existing R-18 through R-23 alias,
+storage, shadowing and policy fixtures remain in the suite.
+
+The CI pull-request branch filter now includes `hardening/**`, matching the existing
+push filter.
+
+**Scope qualification:** this is a bounded source-tree architecture guard. The
+no-symlink policy applies to filesystem entries beneath the supplied source root;
+it does not claim to prove every possible runtime import mechanism, dynamically
+generated module, or code loaded from outside that root. The expected package-root
+validation makes the intended production scan target explicit. Exact-head CI and
+independent reassessment remain required. R-24 does not implement branch protection,
+required status checks, deployment restrictions, PostgreSQL RLS, production
+authentication, authoritative membership, centralized authorization, or the wider
+tenant-isolation controls.
