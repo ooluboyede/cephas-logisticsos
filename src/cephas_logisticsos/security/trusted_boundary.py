@@ -3,6 +3,7 @@
 import argparse
 import ast
 import os
+import stat
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -611,12 +612,36 @@ def _production_source_boundary_violations(
     return violations
 
 
+def _validate_source_root_path(source_root: Path) -> Path:
+    """Reject symlinks in every existing component of the supplied source path."""
+    supplied = Path(source_root)
+    if ".." in supplied.parts:
+        raise ValueError(f"parent traversal is prohibited in source root: {source_root}")
+
+    absolute_root = Path(os.path.abspath(os.fspath(supplied)))
+    current = Path(absolute_root.anchor)
+    for component in absolute_root.parts[1:]:
+        current = current / component
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"source-root path components must not contain symlinks: {current}")
+    if not absolute_root.is_dir():
+        raise FileNotFoundError(f"source directory does not exist: {absolute_root}")
+    return absolute_root
+
+
 def scan_source_tree(source_root: Path) -> list[str]:
-    """Scan the approved source tree, rejecting links and incomplete roots."""
-    if source_root.is_symlink():
-        raise ValueError(f"source root must not be a symlink: {source_root}")
-    if not source_root.is_dir():
-        raise FileNotFoundError(f"source directory does not exist: {source_root}")
+    """Scan a stable, symlink-free source tree and reject incomplete roots.
+
+    Callers must ensure the tree is quiescent for the duration of the scan.
+    The CI workflow enforces this operationally by scanning immediately after
+    checkout, before dependency installation or project code execution, with
+    the source tree made read-only on an isolated GitHub-hosted runner.
+    """
+    source_root = _validate_source_root_path(source_root)
 
     package_root = source_root / "cephas_logisticsos"
     if package_root.is_symlink():

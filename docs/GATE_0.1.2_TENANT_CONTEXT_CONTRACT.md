@@ -218,3 +218,38 @@ independent reassessment remain required. R-24 does not implement branch protect
 required status checks, deployment restrictions, PostgreSQL RLS, production
 authentication, authoritative membership, centralized authorization, or the wider
 tenant-isolation controls.
+
+ 
+## R-25 — source-root identity and stable scan workspace
+
+R-25 closes the conditional hardening requirements from the independent R-24
+reassessment.
+
+The scanner validates every existing component of the supplied source-root path,
+not only its final component. Any symlink in the absolute source-root path is
+rejected. Parent-directory (`..`) traversal in the supplied path is also rejected,
+so lexical path normalization cannot conceal a symlinked ancestor.
+
+The scanner's filesystem contract requires a quiescent source tree for the entire
+scan. A caller must prevent concurrent mutation while scanning. In the GitHub
+Actions quality job, the scanner is deliberately invoked immediately after
+checkout and Python setup, before dependency installation or execution of project
+build code. The workflow removes write permissions from `src` for the duration of the scan,
+then restores owner write permissions so editable package installation can create
+its generated metadata. The scanner runs before dependency installation or
+execution of project build code. This is an operational immutability control on
+the isolated CI workspace during the scan; it is not protection against a
+privileged or concurrent process that deliberately changes permissions or mutates
+the runner filesystem. Such a process is outside the stated CI threat model. Environments that permit
+concurrent untrusted writers must provide a separate immutable snapshot or
+stronger descriptor-based filesystem isolation.
+
+Regression tests directly cover symlinked source roots, package roots, package
+initializers, symlink cycles, symlinked source-root ancestors, invalid UTF-8 and
+file-read failures. All CLI failure cases must exit non-zero. Existing R-18
+through R-24 regression tests remain required.
+
+R-25 remains a bounded source-tree architecture control. It does not establish
+runtime tenant isolation, PostgreSQL RLS, production authentication, authoritative
+membership, centralized authorization, background-job isolation, branch
+protection or production certification.
