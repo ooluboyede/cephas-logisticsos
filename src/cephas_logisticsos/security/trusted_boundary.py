@@ -622,9 +622,7 @@ def scan_source_tree(source_root: Path) -> list[str]:
     if package_root.is_symlink():
         raise ValueError(f"production package root must not be a symlink: {package_root}")
     if not package_root.is_dir():
-        raise FileNotFoundError(
-            f"expected production package directory is missing: {package_root}"
-        )
+        raise FileNotFoundError(f"expected production package directory is missing: {package_root}")
     package_init = package_root / "__init__.py"
     if package_init.is_symlink():
         raise ValueError(f"production package initializer must not be a symlink: {package_init}")
@@ -655,9 +653,7 @@ def scan_source_tree(source_root: Path) -> list[str]:
         for file_name in sorted(file_names):
             path = current_path / file_name
             if path.is_symlink():
-                raise ValueError(
-                    f"symlinked files are prohibited in the source tree: {path}"
-                )
+                raise ValueError(f"symlinked files are prohibited in the source tree: {path}")
             if path.suffix != ".py":
                 continue
             module_name = ".".join(path.relative_to(source_root).with_suffix("").parts)
@@ -666,8 +662,7 @@ def scan_source_tree(source_root: Path) -> list[str]:
     if not source_by_module:
         raise ValueError(f"no Python source files discovered beneath: {source_root}")
     if not any(
-        module_name == "cephas_logisticsos"
-        or module_name.startswith("cephas_logisticsos.")
+        module_name == "cephas_logisticsos" or module_name.startswith("cephas_logisticsos.")
         for module_name in source_by_module
     ):
         raise ValueError(
