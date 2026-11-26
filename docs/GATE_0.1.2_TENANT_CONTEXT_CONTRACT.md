@@ -234,11 +234,13 @@ The scanner's filesystem contract requires a quiescent source tree for the entir
 scan. A caller must prevent concurrent mutation while scanning. In the GitHub
 Actions quality job, the scanner is deliberately invoked immediately after
 checkout and Python setup, before dependency installation or execution of project
-build code. The workflow removes write permissions from `src` before invoking
-the scanner. This is an operational immutability control on the isolated CI
-workspace; it is not protection against a privileged or concurrent process that
-deliberately changes permissions or mutates the runner filesystem. Such a
-process is outside the stated CI threat model. Environments that permit
+build code. The workflow removes write permissions from `src` for the duration of the scan,
+then restores owner write permissions so editable package installation can create
+its generated metadata. The scanner runs before dependency installation or
+execution of project build code. This is an operational immutability control on
+the isolated CI workspace during the scan; it is not protection against a
+privileged or concurrent process that deliberately changes permissions or mutates
+the runner filesystem. Such a process is outside the stated CI threat model. Environments that permit
 concurrent untrusted writers must provide a separate immutable snapshot or
 stronger descriptor-based filesystem isolation.
 
