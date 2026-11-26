@@ -2,6 +2,7 @@
 
 import http.client
 import json
+import math
 import ssl
 from collections.abc import Mapping
 from time import monotonic
@@ -31,6 +32,13 @@ def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _reject_constant(value: str) -> None:
     raise ValueError("nonfinite JSON number")
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("nonfinite JSON number")
+    return number
 
 
 def _check_budget(start: float) -> None:
@@ -84,7 +92,7 @@ def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, o
             _check_budget(start)
             response = connection.getresponse()
             _check_budget(start)
-            if response.status != 200:
+            if response.status != 200 or response.headers.defects:
                 raise ValueError("unexpected HTTP status")
             for name in ("Content-Encoding", "Content-Type"):
                 if len(response.headers.get_all(name, [])) > 1:
@@ -101,14 +109,19 @@ def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, o
                 raise ValueError("ambiguous response framing")
             if transfer and (len(transfer) != 1 or transfer[0].lower() != "chunked"):
                 raise ValueError("unexpected transfer encoding")
-            if lengths and (not lengths[0].isdigit() or int(lengths[0]) > _LIMIT):
+            if lengths and (
+                not lengths[0].isascii() or not lengths[0].isdigit() or int(lengths[0]) > _LIMIT
+            ):
                 raise ValueError("invalid response size")
             raw = response.read(_LIMIT + 1)
             _check_budget(start)
             if len(raw) > _LIMIT or (lengths and len(raw) != int(lengths[0])):
                 raise ValueError("invalid response length")
             parsed: object = json.loads(
-                raw.decode("utf-8"), object_pairs_hook=_unique, parse_constant=_reject_constant
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique,
+                parse_constant=_reject_constant,
+                parse_float=_finite_float,
             )
             if not isinstance(parsed, dict):
                 raise ValueError("invalid response object")

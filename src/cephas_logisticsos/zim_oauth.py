@@ -134,6 +134,10 @@ class SandboxOAuth:
                 ):
                     raise OAuthError("invalid token response")
                 expires_at = now + min(ttl, _MAX_TTL)
+                # Re-resolve the authorized credential after an in-flight request.
+                # A rotation or provider failure must not publish an old token.
+                if self._provider(self._binding) != credentials:
+                    raise OAuthError("credential changed during authentication")
                 finished = self._read_clock()
                 if finished >= expires_at - _REFRESH_MARGIN:
                     raise OAuthError("token lifetime exhausted")
