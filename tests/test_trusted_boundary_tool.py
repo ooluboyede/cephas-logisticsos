@@ -127,3 +127,85 @@ def test_cli_fails_closed_on_unexpected_scanner_error(
     with pytest.raises(SystemExit) as error:
         main(["--source", str(tmp_path)])
     assert error.value.code == 2
+
+ 
+def test_cli_rejects_symlinked_source_root(tmp_path: Path) -> None:
+    real_root = tmp_path / "real-source"
+    real_root.mkdir()
+    package_root = _make_package_root(real_root)
+    (package_root / "handler.py").write_text("value = 1\\n", encoding="utf-8")
+    linked_root = tmp_path / "source-link"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(linked_root)])
+    assert error.value.code == 2
+
+
+def test_cli_rejects_symlinked_package_root(tmp_path: Path) -> None:
+    package_root = _make_package_root(tmp_path)
+    external_package = tmp_path.parent / f"{tmp_path.name}-external-package"
+    package_root.rename(external_package)
+    (tmp_path / "cephas_logisticsos").symlink_to(external_package, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(tmp_path)])
+    assert error.value.code == 2
+
+
+def test_cli_rejects_symlinked_package_initializer(tmp_path: Path) -> None:
+    package_root = _make_package_root(tmp_path)
+    external_initializer = tmp_path.parent / f"{tmp_path.name}-external-init.py"
+    external_initializer.write_text('"""External initializer."""\\n', encoding="utf-8")
+    (package_root / "__init__.py").unlink()
+    (package_root / "__init__.py").symlink_to(external_initializer)
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(tmp_path)])
+    assert error.value.code == 2
+
+
+def test_cli_rejects_symlink_cycle(tmp_path: Path) -> None:
+    package_root = _make_package_root(tmp_path)
+    (package_root / "cycle").symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(tmp_path)])
+    assert error.value.code == 2
+
+
+def test_cli_rejects_source_root_reached_through_symlinked_ancestor(tmp_path: Path) -> None:
+    real_parent = tmp_path / "real-parent"
+    source_root = real_parent / "src"
+    source_root.mkdir(parents=True)
+    package_root = _make_package_root(source_root)
+    (package_root / "handler.py").write_text("value = 1\\n", encoding="utf-8")
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(linked_parent / "src")])
+    assert error.value.code == 2
+
+
+def test_cli_fails_closed_on_invalid_utf8_source(tmp_path: Path) -> None:
+    package_root = _make_package_root(tmp_path)
+    (package_root / "invalid.py").write_bytes(b"value = \\xff\\n")
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(tmp_path)])
+    assert error.value.code == 2
+
+
+def test_cli_fails_closed_on_file_read_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = _make_package_root(tmp_path)
+    target = package_root / "unreadable.py"
+    target.write_text("value = 1\\n", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def fail_target_read(path: Path, *args: object, **kwargs: object) -> str:
+        if path == target:
+            raise PermissionError("simulated source file read failure")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_target_read)
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(tmp_path)])
+    assert error.value.code == 2
