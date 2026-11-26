@@ -27,6 +27,8 @@ jobs:
         run: chmod -R a-w src
       - name: Trusted tenant-boundary enforcement
         run: python src/cephas_logisticsos/security/trusted_boundary.py --source src
+      - name: Restore source write permissions for package installation
+        run: chmod -R u+w src
       - name: Install package and development dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
       - name: Ruff lint
