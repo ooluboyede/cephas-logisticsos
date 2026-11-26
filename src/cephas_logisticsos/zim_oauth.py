@@ -77,10 +77,18 @@ class SandboxOAuth:
         self._lock = Lock()
         self._token: AccessToken | None = None
         self._revision: str | None = None
+        self._last_clock: float | None = None
 
     def _clear(self) -> None:
         self._token = None
         self._revision = None
+
+    def _read_clock(self) -> float:
+        now = self._clock()
+        if not math.isfinite(now) or (self._last_clock is not None and now < self._last_clock):
+            raise OAuthError("invalid clock")
+        self._last_clock = now
+        return now
 
     def get_token(self, binding: Binding) -> AccessToken:
         if binding != self._binding:
@@ -93,9 +101,7 @@ class SandboxOAuth:
                     for value in (credentials.client_id, credentials.secret, credentials.revision)
                 ):
                     raise OAuthError("invalid credentials")
-                now = self._clock()
-                if not math.isfinite(now):
-                    raise OAuthError("invalid clock")
+                now = self._read_clock()
                 token = self._token
                 if (
                     token is not None
@@ -128,12 +134,8 @@ class SandboxOAuth:
                 ):
                     raise OAuthError("invalid token response")
                 expires_at = now + min(ttl, _MAX_TTL)
-                finished = self._clock()
-                if (
-                    not math.isfinite(finished)
-                    or finished < now
-                    or finished >= expires_at - _REFRESH_MARGIN
-                ):
+                finished = self._read_clock()
+                if finished >= expires_at - _REFRESH_MARGIN:
                     raise OAuthError("token lifetime exhausted")
                 self._token = AccessToken(value, expires_at)
                 self._revision = credentials.revision

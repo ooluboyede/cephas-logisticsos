@@ -4,6 +4,7 @@ import http.client
 import json
 import ssl
 from collections.abc import Mapping
+from time import monotonic
 from urllib.parse import urlencode
 
 _ENDPOINT = "https://apigw.zim.com/authorize/v1"
@@ -32,10 +33,16 @@ def _reject_constant(value: str) -> None:
     raise ValueError("nonfinite JSON number")
 
 
+def _check_budget(start: float) -> None:
+    if monotonic() - start >= _TIMEOUT:
+        raise ValueError("request budget exceeded")
+
+
 def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, object]:
     """POST only to the fixed ZIM token endpoint using verified TLS.
 
-    Socket timeout is not an end-to-end deadline (DNS and slow reads may exceed it).
+    Late results are rejected at phase boundaries. DNS and blocking reads may still
+    exceed the budget before returning; this is not a hard cancellation deadline.
     No proxy, redirects, retries, decompression, or logging. Caller must be trusted.
     """
     if url != _ENDPOINT:
@@ -53,8 +60,12 @@ def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, o
         body = urlencode(fields).encode("ascii")
         if len(body) > _LIMIT:
             raise ValueError("request too large")
-        context = ssl.create_default_context()
+        start = monotonic()
+        # Avoid create_default_context enabling TLS key logging via SSLKEYLOGFILE.
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_default_certs()
         context.minimum_version = ssl.TLSVersion.TLSv1_2
+        _check_budget(start)
         connection = http.client.HTTPSConnection(
             _HOST, port=443, timeout=_TIMEOUT, context=context
         )
@@ -70,9 +81,14 @@ def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, o
                     "Cache-Control": "no-store",
                 },
             )
+            _check_budget(start)
             response = connection.getresponse()
+            _check_budget(start)
             if response.status != 200:
                 raise ValueError("unexpected HTTP status")
+            for name in ("Content-Encoding", "Content-Type"):
+                if len(response.headers.get_all(name, [])) > 1:
+                    raise ValueError("ambiguous response header")
             if response.getheader("Content-Encoding", "identity").lower() != "identity":
                 raise ValueError("unexpected encoding")
             if response.getheader("Content-Type", "").split(";", 1)[0].strip().lower() != (
@@ -88,6 +104,7 @@ def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, o
             if lengths and (not lengths[0].isdigit() or int(lengths[0]) > _LIMIT):
                 raise ValueError("invalid response size")
             raw = response.read(_LIMIT + 1)
+            _check_budget(start)
             if len(raw) > _LIMIT or (lengths and len(raw) != int(lengths[0])):
                 raise ValueError("invalid response length")
             parsed: object = json.loads(
@@ -95,6 +112,7 @@ def sandbox_token_transport(url: str, form: Mapping[str, str]) -> Mapping[str, o
             )
             if not isinstance(parsed, dict):
                 raise ValueError("invalid response object")
+            _check_budget(start)
             return parsed
         finally:
             connection.close()
