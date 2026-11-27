@@ -183,12 +183,37 @@ def test_cli_rejects_source_root_reached_through_symlinked_ancestor(tmp_path: Pa
     assert error.value.code == 2
 
 
-def test_cli_fails_closed_on_invalid_utf8_source(tmp_path: Path) -> None:
+def test_cli_fails_closed_on_invalid_utf8_source(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     package_root = _make_package_root(tmp_path)
-    (package_root / "invalid.py").write_bytes(b"value = \\xff\\n")
+    payload = b"value = " + bytes([0xFF]) + b"\n"
+    (package_root / "invalid.py").write_bytes(payload)
+    with pytest.raises(UnicodeDecodeError):
+        payload.decode("utf-8")
+
     with pytest.raises(SystemExit) as error:
         main(["--source", str(tmp_path)])
     assert error.value.code == 2
+    diagnostic = capsys.readouterr().err
+    assert "trusted-boundary scan could not complete" in diagnostic
+    assert "codec can't decode byte 0xff" in diagnostic
+
+
+def test_cli_rejects_parent_traversal(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_root = tmp_path / "src"
+    _make_package_root(source_root)
+    assert main(["--source", str(source_root)]) == 0
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as error:
+        main(["--source", str(source_root / ".." / "src")])
+    assert error.value.code == 2
+    assert "parent traversal is prohibited in source root" in capsys.readouterr().err
 
 
 def test_cli_fails_closed_on_file_read_error(
