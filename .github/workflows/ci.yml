@@ -39,3 +39,27 @@ jobs:
         run: mypy src
       - name: Tests
         run: pytest --cov=cephas_logisticsos --cov-report=term-missing --cov-fail-under=80
+
+  postgresql16:
+    name: PostgreSQL 16 integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cephas_t02_test
+          POSTGRES_PASSWORD: cephas-ci-disposable-bootstrap
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cephas_t02_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Execute real PostgreSQL foundation tests
+        env:
+          PG16_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: bash db/tests/run_foundation.sh
