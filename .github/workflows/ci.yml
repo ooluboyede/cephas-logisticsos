@@ -66,3 +66,4 @@ jobs:
         run: |
           printf 'Review head: %s\n' "$REVIEW_HEAD_SHA"
           bash db/tests/run_foundation.sh
+          bash db/tests/run_registry.sh
