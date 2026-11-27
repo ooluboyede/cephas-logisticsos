@@ -132,7 +132,7 @@ BEGIN
 
     -- Future-object privileges: account for default ACLs that are absent from the catalog.
     FOR s IN SELECT * FROM (VALUES ('r'::"char",'r'::"char"),('s'::"char",'S'::"char"),
-        ('f'::"char",'f'::"char"),('T'::"char",'T'::"char')) AS types(default_type,catalog_type) LOOP
+        ('f'::"char",'f'::"char"),('T'::"char",'T'::"char")) AS types(default_type,catalog_type) LOOP
         IF EXISTS (SELECT 1 FROM aclexplode(COALESCE(
             (SELECT defaclacl FROM pg_default_acl WHERE defaclrole=own AND defaclnamespace=0
                 AND defaclobjtype=s.catalog_type),acldefault(s.default_type,own))) x
