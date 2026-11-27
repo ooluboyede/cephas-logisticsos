@@ -38,3 +38,32 @@ The inspected architecture, security baseline, package metadata, composition roo
 
 ## Governance
 Architecture only. No runtime implementation, production certification, branch protection verification, Maersk authorization or full repository inventory is claimed. PR #11 and prior stack remain unmerged unless separately authorized. R-26 acceptance is limited to reviewed scanner regression scope.
+
+## T-02.1 design refinement — proposed for independent review
+
+This section supersedes the provisional shared runtime role/custom-setting scope binding above. It does not grant implementation authorization or owner approval of the roadmap.
+
+### A01 — database-authenticated tenant and business-unit binding
+Use one restricted PostgreSQL login identity per tenant/business-unit pair for the first implementation. The database authenticates the login directly. A protected binding registry maps its authenticated session_user to exactly one tenant/business-unit pair. Use FORCE RLS on the registry, read-only access to the login's own mapping, no runtime registry writes, and fail closed for missing or disabled mappings. Operational policies require the bound pair and matching well-formed transaction-local scope; changing custom settings cannot widen the database login's permitted pair. The subject setting remains trusted application context, not database-authenticated end-user proof. No cross-scope login membership, arbitrary role assumption, shared privileged connection or user SQL. A trusted connection broker selects the pool only after verified identity/membership and verifies session_user and binding before work. Pool keys include deployment, database and scoped identity. A compromised broker/application with access to multiple credentials, privileged DBA, and malicious same-scope SQL remain outside this isolation guarantee. Evaluate credential/pool cardinality and operating cost before scale-out. Do not advertise end-user-level database authentication.
+Provisioning must prevent stale mappings and role-name reuse: opaque unique login names, disable binding and revoke login, drain/terminate affected sessions, remove binding and retire credential on deprovisioning. Restore/rotation procedures must revalidate all identity bindings. No raw customer IDs in role names.
+
+### A02 — proposed effective privilege matrix
+- Bootstrap administrator: creates roles/database, not an application credential.
+- Migration login: tightly controlled owner assumption only for reviewed migrations; no application pooling.
+- Object owner: NOLOGIN; owns schemas, tables and policies; no application membership.
+- Scoped runtime login: restricted operational CRUD (column-specific UPDATE excluding scope keys); own binding read only. NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION. No ability to assume another scope, membership reader, migration or owner.
+- Membership lookup login: read only on separately protected authoritative membership path; no operational data or registry modification. Restrict access to trusted provider; lookup cannot establish end-user authentication by itself.
+- Registry provisioner: separately controlled lifecycle operations; not a runtime login.
+- PUBLIC: explicitly revoke unnecessary database CONNECT/TEMP, schema CREATE/USAGE, and object privileges; grant only required rights, set safe schema-qualified access and creator-specific default privileges. No blanket grants to existing or future tables. Test effective grants and transitive role memberships using actual logins. Any shared NOLOGIN privilege role must not allow changing login scope.
+
+### A03/A04 — integrity and revocation
+Use C-collated opaque identifiers with 1–128 ASCII characters matching the Python contract. Include tenant and business unit in operational primary, unique and foreign keys; prevent scope updates with column privileges. Registry writes require separate provisioning. PostgreSQL referential-integrity checks can bypass RLS; avoid global operational uniqueness and sanitize constraint diagnostics. Do not claim elimination of all timing/error side channels.
+The policy must require an active database binding plus syntactically valid matching transaction context, including subject. T-03 must define authoritative membership validation, recheck at transaction start, revocation handling and maximum in-flight authorization lifetime. A transaction already running under a prior snapshot is not instantly revoked. T-04 must implement scoped pool routing, cleanup and cancellation/discard on failure. No application use until T-03/T-04 are verified.
+
+### A05 — required evidence
+First target PostgreSQL 16; 17 is unqualified until separately tested. Test direct authentication as each scope login, cross-scope setting changes, SET ROLE/session-authorization escalation denial, missing/disabled mapping, cross-scope CRUD, column privileges, default privileges, RLS catalog and constraint behaviour. Require a real database in integration CI; no silent skips. Verify migrations from clean database, rollback and upgrade. Preserve the existing R-26 checks. Test subject forgery within a scope as an explicit limitation, not a passed end-user authentication control.
+
+### A06 — governance
+Full recursive inventory, branch protection and required checks remain unverified. Proposed reconciliation: runtime isolation is a prerequisite for Gate 0.1.2; Gate 0.4 retains broader hardening and revalidation. Owner approval and independent design acceptance remain pending; ROADMAP.md is unchanged. No implementation or merge authority.
+
+Technical references: PostgreSQL 16 documentation, session authorization (https://www.postgresql.org/docs/16/sql-set-session-authorization.html), system information (https://www.postgresql.org/docs/16/functions-info.html), row security (https://www.postgresql.org/docs/16/ddl-rowsecurity.html), and privileges (https://www.postgresql.org/docs/16/ddl-priv.html).
