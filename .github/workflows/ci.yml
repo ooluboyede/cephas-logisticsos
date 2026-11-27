@@ -80,3 +80,4 @@ jobs:
           bash db/tests/run_expanded_manifest.sh
           bash db/tests/run_role_inventory.sh
           bash db/tests/run_membership.sh
+          bash db/tests/run_membership_admin.sh
