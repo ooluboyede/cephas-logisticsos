@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, "feature/**", "hardening/**", "security/**"]
+    branches: [main, "feature/**", "hardening/**", "security/**", "integration/**"]
   pull_request:
-    branches: [main, "feature/**", "hardening/**", "security/**"]
+    branches: [main, "feature/**", "hardening/**", "security/**", "integration/**"]
   workflow_dispatch:
 
 permissions:
