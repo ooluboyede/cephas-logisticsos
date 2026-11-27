@@ -74,3 +74,4 @@ jobs:
           bash db/tests/run_registry_edges.sh
           bash db/tests/run_lifecycle_boundary.sh
           bash db/tests/run_operational_rls.sh
+          bash db/tests/run_operational_catalog.sh
