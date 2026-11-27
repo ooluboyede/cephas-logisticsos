@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "feature/**", "hardening/**", "security/**", "integration/**"]
   pull_request:
-    branches: [main, "feature/**", "hardening/**", "security/**", "integration/**"]
+    branches: [main, "feature/**", "hardening/**", "security/**", "integration/**", "work/**"]
   workflow_dispatch:
 
 permissions:
@@ -62,4 +62,7 @@ jobs:
       - name: Execute real PostgreSQL foundation tests
         env:
           PG16_CONTAINER_ID: ${{ job.services.postgres.id }}
-        run: bash db/tests/run_foundation.sh
+          REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          printf 'Review head: %s\n' "$REVIEW_HEAD_SHA"
+          bash db/tests/run_foundation.sh
