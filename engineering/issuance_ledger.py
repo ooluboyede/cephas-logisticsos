@@ -97,6 +97,13 @@ class IssuanceLedger:
             raise EvidenceDenied("external checkpoint mismatch; no automatic recovery")
         return records
 
+    def current(self) -> Checkpoint:
+        """Read a consistent local checkpoint; caller must determine its authority."""
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN")
+            point, _ = self._scan(db)
+            return point
+
     def reserve(self, record: Reservation, *, expected: Checkpoint) -> Checkpoint:
         """Append under an exact anchored predecessor; returned head is NOT anchored yet."""
         record.validate()
