@@ -37,6 +37,10 @@ jobs:
         run: ruff format --check --diff .
       - name: Mypy
         run: mypy src
+      - name: Type-check lifecycle engineering reference
+        run: mypy engineering
+      - name: Lifecycle reference tests
+        run: python -m pytest -q engineering/test_lifecycle_controller.py
       - name: Tests
         run: pytest --cov=cephas_logisticsos --cov-report=term-missing --cov-fail-under=80
 
