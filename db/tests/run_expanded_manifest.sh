@@ -8,10 +8,11 @@ admin() {
     docker exec -i "$PG16_CONTAINER_ID" psql -X -w -U postgres -d cephas_t02_test -v ON_ERROR_STOP=1 "$@"
 }
 verify() {
-    admin < db/tests/0002_registry_manifest.sql
-    admin < db/tests/0004_entity_manifest.sql
-    admin < db/tests/0004_association_manifest.sql
-    admin < db/tests/0004_registry_expressions.sql
+    # Explicit checks are mandatory: Bash disables errexit inside a conditional.
+    admin < db/tests/0002_registry_manifest.sql || return $?
+    admin < db/tests/0004_entity_manifest.sql || return $?
+    admin < db/tests/0004_association_manifest.sql || return $?
+    admin < db/tests/0004_registry_expressions.sql || return $?
 }
 drift() {
     local mutation="$1" restore="$2" reason="$3" output
@@ -19,7 +20,7 @@ drift() {
     if output="$(verify 2>&1)"; then
         echo "Expanded manifest unexpectedly accepted drift: $reason" >&2; exit 1
     fi
-    if ! grep -Fq "$reason" <<< "$output"; then
+    if ! grep -Fq "ERROR:  $reason" <<< "$output"; then
         printf 'Unexpected expanded manifest failure: %s\n%s\n' "$reason" "$output" >&2; exit 1
     fi
     admin -c "$restore"

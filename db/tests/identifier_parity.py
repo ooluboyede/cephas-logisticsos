@@ -34,9 +34,9 @@ def main() -> None:
     if re.fullmatch(r"[a-f0-9]{12,64}", container) is None:
         raise RuntimeError("invalid disposable service container")
     values = list(dict.fromkeys(vectors()))
-    # Hex encodes all input bytes: no interpolated raw SQL text.
-    rows = ",\n".join(f"({i},'{v.encode('utf-8').hex()}')" for i, v in enumerate(values))
-    script = f"""
+    # COPY data is separate from static SQL; hex contains no COPY control characters.
+    rows = "\n".join(f"{i}\t{v.encode('utf-8').hex()}" for i, v in enumerate(values))
+    prefix = """
 BEGIN;
 SET LOCAL search_path=pg_catalog;
 DO $guard$
@@ -46,6 +46,7 @@ BEGIN
     THEN RAISE EXCEPTION 'wrong test environment'; END IF;
 END
 $guard$;
+CREATE TEMP TABLE identifier_vectors (id integer PRIMARY KEY, hex text NOT NULL);
 CREATE FUNCTION pg_temp.accept_identifier(value text) RETURNS boolean
 LANGUAGE plpgsql AS $fn$
 BEGIN
@@ -55,12 +56,15 @@ EXCEPTION WHEN check_violation THEN
     RETURN false;
 END
 $fn$;
+COPY pg_temp.identifier_vectors (id,hex) FROM STDIN;
+"""
+    suffix = r"""
+\.
 SELECT id,pg_temp.accept_identifier(convert_from(decode(hex,'hex'),'UTF8'))
-FROM (VALUES
-{rows}
-) AS vectors(id,hex) ORDER BY id;
+FROM pg_temp.identifier_vectors ORDER BY id;
 ROLLBACK;
 """
+    script = prefix + rows + "\n" + suffix.lstrip("\n")
     # Fixed executable and parameters, validated container ID; no shell.
     docker = shutil.which("docker")
     if docker is None:
