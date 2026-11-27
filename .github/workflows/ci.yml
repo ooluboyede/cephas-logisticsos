@@ -40,7 +40,7 @@ jobs:
       - name: Type-check lifecycle engineering reference
         run: mypy engineering
       - name: Lifecycle reference tests
-        run: python -m pytest -q engineering/test_lifecycle_controller.py
+        run: python -m pytest -q engineering
       - name: Tests
         run: pytest --cov=cephas_logisticsos --cov-report=term-missing --cov-fail-under=80
 
