@@ -79,3 +79,4 @@ jobs:
           bash db/tests/run_scoped_associations.sh
           bash db/tests/run_expanded_manifest.sh
           bash db/tests/run_role_inventory.sh
+          bash db/tests/run_membership.sh
