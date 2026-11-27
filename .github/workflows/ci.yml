@@ -72,3 +72,4 @@ jobs:
           bash db/tests/run_foundation.sh
           bash db/tests/run_registry.sh
           bash db/tests/run_registry_edges.sh
+          bash db/tests/run_lifecycle_boundary.sh
